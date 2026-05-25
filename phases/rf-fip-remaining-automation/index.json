@@ -1,0 +1,57 @@
+{
+  "project": "RF Failure Intelligence Platform UX",
+  "phase": "rf-fip-remaining-automation",
+  "steps": [
+    {
+      "step": 0,
+      "name": "qa-harness-baseline",
+      "status": "completed",
+      "verdict": "PASS_WITH_RISK",
+      "summary": "Added RF-FIP production API smoke script and recorded baseline evidence. Policy hook, typecheck, Vite build, server bundle, and API smoke passed; sandbox EPERM caution is recorded in scripts/rules.md."
+    },
+    {
+      "step": 1,
+      "name": "browser-e2e-unblock",
+      "status": "blocked",
+      "verdict": "BLOCKED",
+      "blocked_reason": "Browser plugin cannot open local RF-FIP URLs. Both http://127.0.0.1:3322/ and http://localhost:3322/ returned net::ERR_BLOCKED_BY_CLIENT while the production server /api/health endpoint was reachable from PowerShell.",
+      "summary": "Production server health passed on a smoke DB, but Browser plugin local URL access remains environment-blocked. Per user request, continue only with independent non-browser steps."
+    },
+    {
+      "step": 2,
+      "name": "excel-import-parser",
+      "status": "completed",
+      "verdict": "PASS_WITH_RISK",
+      "summary": "Added client import parser with CSV/TSV/JSON/TXT plus dependency-free .xlsx sheet row extraction. Import review now builds candidates from ParsedImportSource materials. Parser smoke passed for 3 CSV sources and 2 XLSX sources; .xls remains a legacy binary hold path until a parser dependency is approved."
+    },
+    {
+      "step": 3,
+      "name": "sqlite-store-backend",
+      "status": "completed",
+      "verdict": "PASS",
+      "summary": "Replaced JSON file store with node:sqlite-backed rf-fip.sqlite collection storage, preserving API contracts and adding legacy rf-fip.json migration when SQLite is empty. Typecheck, Vite build, server bundle, and restart persistence SQLite smoke passed."
+    },
+    {
+      "step": 4,
+      "name": "import-workflow-hardening",
+      "status": "completed",
+      "verdict": "PASS_WITH_RISK",
+      "summary": "Verified Import workflow hardening: signature-similarity duplicate detection, hold candidate promotion, and Import history UI/state wiring. Typecheck and Vite build passed; browser E2E remains environment-blocked from Step 1."
+    },
+    {
+      "step": 5,
+      "name": "gauss-adapter-contract",
+      "status": "completed",
+      "verdict": "PASS_WITH_RISK",
+      "summary": "Completed server-owned Gauss adapter contract for offsite work: local deterministic provider, gauss blocked contract, /api/llm/* server API, client wrapper types, docs, and LLM adapter smoke. Real Gauss calls remain intentionally blocked until internal API URL/key/schema/file/timeout/error contracts are available."
+    },
+    {
+      "step": 6,
+      "name": "release-shape-and-git",
+      "status": "blocked",
+      "verdict": "BLOCKED",
+      "blocked_reason": "Git repository/remote decision required. git status failed because _analysis_rf_platform_ux is not a git repository.",
+      "summary": "Release/handoff records were updated and validation passed, but commit/push cannot proceed until the work is moved to a real Git repository or this folder is initialized and connected to a remote."
+    }
+  ]
+}
