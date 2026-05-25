@@ -39,6 +39,7 @@
 
 /* ── Dark theme (default) ── */
 :root {
+  color-scheme: dark;
   --radius: 0.5rem;
   --background: oklch(0.118 0.012 264);
   --foreground: oklch(0.92 0.008 240);
@@ -74,10 +75,28 @@
   --panel-surface-2: oklch(0.155 0.014 264);
   --ai-bubble-bg: oklch(0.19 0.04 260);
   --ai-bubble-border: oklch(0.3 0.06 260);
+  --rf-card-bg: var(--panel-surface);
+  --rf-card-border: var(--border);
+  --rf-blue-bg: oklch(0.19 0.04 260);
+  --rf-blue-border: oklch(0.28 0.07 260);
+  --rf-blue-fg: #60A5FA;
+  --rf-green-bg: oklch(0.19 0.04 150);
+  --rf-green-border: oklch(0.28 0.07 150);
+  --rf-green-fg: #10B981;
+  --rf-amber-bg: oklch(0.19 0.04 55);
+  --rf-amber-border: oklch(0.28 0.07 55);
+  --rf-amber-fg: #F59E0B;
+  --rf-red-bg: oklch(0.19 0.04 25);
+  --rf-red-border: oklch(0.28 0.07 25);
+  --rf-red-fg: #F43F5E;
+  --rf-violet-bg: oklch(0.19 0.04 290);
+  --rf-violet-border: oklch(0.28 0.07 290);
+  --rf-violet-fg: #A78BFA;
 }
 
 /* ── Light theme ── */
 .light-mode {
+  color-scheme: light;
   --background: oklch(0.97 0.003 240);
   --foreground: oklch(0.18 0.012 240);
   --card: oklch(1 0 0);
@@ -111,6 +130,23 @@
   --panel-surface-2: oklch(0.97 0.003 240);
   --ai-bubble-bg: oklch(0.93 0.015 260);
   --ai-bubble-border: oklch(0.82 0.04 260);
+  --rf-card-bg: var(--panel-surface);
+  --rf-card-border: var(--border);
+  --rf-blue-bg: oklch(0.94 0.025 260);
+  --rf-blue-border: oklch(0.82 0.055 260);
+  --rf-blue-fg: oklch(0.45 0.18 260);
+  --rf-green-bg: oklch(0.94 0.035 150);
+  --rf-green-border: oklch(0.80 0.09 150);
+  --rf-green-fg: oklch(0.42 0.16 150);
+  --rf-amber-bg: oklch(0.95 0.045 65);
+  --rf-amber-border: oklch(0.82 0.10 65);
+  --rf-amber-fg: oklch(0.52 0.14 65);
+  --rf-red-bg: oklch(0.95 0.04 25);
+  --rf-red-border: oklch(0.84 0.08 25);
+  --rf-red-fg: oklch(0.52 0.20 25);
+  --rf-violet-bg: oklch(0.94 0.03 290);
+  --rf-violet-border: oklch(0.82 0.06 290);
+  --rf-violet-fg: oklch(0.48 0.16 290);
 }
 
 /* ── Dim theme ── */

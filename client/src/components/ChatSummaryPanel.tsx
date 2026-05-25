@@ -57,7 +57,7 @@ function SummarySection({
   return (
     <div className="rounded-lg overflow-hidden" style={{ background: bgColor, border: `1px solid ${borderColor}` }}>
       <button
-        className="w-full flex items-center justify-between px-3 py-2 hover:bg-white/5 transition-colors"
+        className="w-full flex items-center justify-between px-3 py-2 hover:bg-accent transition-colors"
         onClick={() => setOpen(!open)}
       >
         <div className="flex items-center gap-2">
@@ -76,7 +76,7 @@ function SummarySection({
             transition={{ duration: 0.18 }}
             className="overflow-hidden"
           >
-            <div className="px-3 pb-3 space-y-1.5 border-t border-white/5">
+            <div className="px-3 pb-3 space-y-1.5 border-t border-border/40">
               {items.map((item, i) => {
                 const messageId = summaryMessageId(item);
                 const clickable = !!messageId && !!onJumpToMessage;
@@ -90,7 +90,7 @@ function SummarySection({
                   transition={{ delay: i * 0.04 }}
                   className={cn(
                     "flex items-start gap-2 rounded-md pt-1.5",
-                    clickable && "cursor-pointer hover:bg-white/5"
+                    clickable && "cursor-pointer hover:bg-accent"
                   )}
                   onClick={() => messageId && onJumpToMessage?.(messageId)}
                   title={clickable ? "관련 채팅 위치로 이동" : undefined}
@@ -150,41 +150,41 @@ export function ChatSummaryPanel({
       </div>
 
       <SummarySection
-        icon={<Lightbulb className="w-3.5 h-3.5" style={{ color: "#F59E0B" }} />}
+        icon={<Lightbulb className="w-3.5 h-3.5" style={{ color: "var(--rf-amber-fg)" }} />}
         title="주요 발견"
         items={summary.keyFindings}
-        color="#F59E0B"
-        bgColor="oklch(0.19 0.03 55)"
-        borderColor="oklch(0.28 0.06 55)"
+        color="var(--rf-amber-fg)"
+        bgColor="var(--rf-amber-bg)"
+        borderColor="var(--rf-amber-border)"
         onJumpToMessage={onJumpToMessage}
       />
 
       <SummarySection
-        icon={<CheckCircle2 className="w-3.5 h-3.5" style={{ color: "#10B981" }} />}
+        icon={<CheckCircle2 className="w-3.5 h-3.5" style={{ color: "var(--rf-green-fg)" }} />}
         title="확인된 사실"
         items={summary.confirmedFacts}
-        color="#10B981"
-        bgColor="oklch(0.18 0.03 150)"
-        borderColor="oklch(0.27 0.06 150)"
+        color="var(--rf-green-fg)"
+        bgColor="var(--rf-green-bg)"
+        borderColor="var(--rf-green-border)"
         onJumpToMessage={onJumpToMessage}
       />
 
       <SummarySection
-        icon={<HelpCircle className="w-3.5 h-3.5" style={{ color: "#F43F5E" }} />}
+        icon={<HelpCircle className="w-3.5 h-3.5" style={{ color: "var(--rf-red-fg)" }} />}
         title="미해결 질문"
         items={summary.pendingQuestions}
-        color="#F43F5E"
-        bgColor="oklch(0.18 0.04 25)"
-        borderColor="oklch(0.27 0.07 25)"
+        color="var(--rf-red-fg)"
+        bgColor="var(--rf-red-bg)"
+        borderColor="var(--rf-red-border)"
       />
 
       <SummarySection
-        icon={<ArrowRight className="w-3.5 h-3.5" style={{ color: "#60A5FA" }} />}
+        icon={<ArrowRight className="w-3.5 h-3.5" style={{ color: "var(--rf-blue-fg)" }} />}
         title="다음 분석 단계"
         items={summary.nextSteps}
-        color="#60A5FA"
-        bgColor="oklch(0.18 0.03 260)"
-        borderColor="oklch(0.27 0.06 260)"
+        color="var(--rf-blue-fg)"
+        bgColor="var(--rf-blue-bg)"
+        borderColor="var(--rf-blue-border)"
       />
 
       <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/40 pt-1">

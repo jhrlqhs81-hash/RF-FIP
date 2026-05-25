@@ -75,3 +75,10 @@ Active
 - Added `docs/GAUSS_INTERNAL_HANDOFF.md` for internal Gauss integration.
 - `git status` failed because `_analysis_rf_platform_ux` is not a Git repository.
 - Step 6 is blocked until the user chooses either the real repository folder or initializes/connects this folder to a remote.
+
+## 2026-05-26 Theme And Issue List Update
+
+- Added app-level light/dark theme switching and converted key UI surfaces to semantic tokens.
+- Added removable controls for left-panel issues that are `validated` or `confirmed`; this changes the Issue list only and preserves Knowledge DB records.
+- Verification passed: whitespace diff check and Harness policy check.
+- TypeScript verification is pending because sandbox `EPERM` blocked local `tsc`, and escalation was rejected by the Codex usage-limit gate.

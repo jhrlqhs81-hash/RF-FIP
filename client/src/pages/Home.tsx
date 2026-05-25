@@ -4,7 +4,8 @@ import {
   Radio, Bot, CheckCircle2, Zap, Send, Paperclip,
   TrendingUp, TrendingDown, Check, X, ChevronDown, Plus,
   Database, FileText, Sparkles, Tag, Info,
-  Activity, Quote, ExternalLink, Image as ImageIcon, Table2, Search, Upload, ClipboardCheck, AlertTriangle, Loader2
+  Activity, Quote, ExternalLink, Image as ImageIcon, Table2, Search, Upload, ClipboardCheck, AlertTriangle, Loader2,
+  Moon, Sun, Trash2
 } from "lucide-react";
 import { MOCK_ISSUES, USERS, Issue, Message, SignatureTag, IssueStatus, ChatAttachment } from "@/lib/mockData";
 import { KNOWLEDGE_DB, KnowledgeCase } from "@/lib/similarCasesDb";
@@ -18,10 +19,12 @@ import { RcaSummaryModal } from "@/components/RcaSummaryModal";
 import { CaseDetailView, buildCaseDetailFromIssue, buildCaseDetailFromKnowledgeCase } from "@/components/CaseDetailView";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useTheme } from "@/contexts/ThemeContext";
 import {
   loadRfFipDb,
   type ImportApprovalRecord,
   persistableAttachment,
+  replaceIssues,
   saveImportApproval,
   saveIssue,
   saveKnowledgeCase,
@@ -33,13 +36,28 @@ import {
 
 // ─── Status helpers ───────────────────────────────────────────────
 const STATUS_CONFIG: Record<IssueStatus, { label: string; color: string; badgeClass: string }> = {
-  new:        { label: '신규',        color: '#64748B', badgeClass: 'badge-new' },
-  hypothesis: { label: '가설 검토', color: '#F59E0B', badgeClass: 'badge-hypothesis' },
-  validated:  { label: '검증됨',  color: '#22D3EE', badgeClass: 'badge-validated' },
-  confirmed:  { label: '확정',  color: '#10B981', badgeClass: 'badge-confirmed' },
-  archived:   { label: '보관',   color: '#64748B', badgeClass: 'badge-archived' },
+  new:        { label: '신규',        color: 'var(--muted-foreground)', badgeClass: 'badge-new' },
+  hypothesis: { label: '가설 검토', color: 'var(--rf-amber-fg)', badgeClass: 'badge-hypothesis' },
+  validated:  { label: '검증됨',  color: 'var(--rf-blue-fg)', badgeClass: 'badge-validated' },
+  confirmed:  { label: '확정',  color: 'var(--rf-green-fg)', badgeClass: 'badge-confirmed' },
+  archived:   { label: '보관',   color: 'var(--muted-foreground)', badgeClass: 'badge-archived' },
 };
 const STATUS_STEPS: IssueStatus[] = ['new', 'hypothesis', 'validated', 'confirmed', 'archived'];
+const REMOVABLE_ISSUE_STATUSES = new Set<IssueStatus>(['validated', 'confirmed']);
+
+function canRemoveIssueFromList(issue: Issue): boolean {
+  return REMOVABLE_ISSUE_STATUSES.has(issue.status);
+}
+
+function toPersistableIssue(issue: Issue): Issue {
+  return {
+    ...issue,
+    messages: issue.messages.map(message => ({
+      ...message,
+      attachments: message.attachments?.map(persistableAttachment),
+    })),
+  };
+}
 
 function StatusBadge({ status }: { status: IssueStatus }) {
   const cfg = STATUS_CONFIG[status];
@@ -63,13 +81,13 @@ function StatusTimeline({ status }: { status: IssueStatus }) {
           <div key={step} className="flex items-center gap-1 flex-1">
             <div className={cn(
               "flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold transition-all duration-300",
-              isDone ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40" :
-              isActive ? "border-2 text-white" : "bg-muted/30 text-muted-foreground border border-border"
-            )} style={isActive ? { borderColor: cfg.color, color: cfg.color } : {}}>
+              isDone ? "border" :
+              isActive ? "border-2" : "bg-muted/30 text-muted-foreground border border-border"
+            )} style={isDone ? { background: 'var(--rf-green-bg)', borderColor: 'var(--rf-green-border)', color: 'var(--rf-green-fg)' } : isActive ? { borderColor: cfg.color, color: cfg.color } : {}}>
               {isDone ? <Check className="w-3 h-3" /> : i + 1}
             </div>
             {i < STATUS_STEPS.length - 2 && (
-              <div className={cn("flex-1 h-px transition-all duration-500", isDone ? "bg-emerald-500/40" : "bg-border")} />
+              <div className="flex-1 h-px transition-all duration-500" style={{ background: isDone ? 'var(--rf-green-border)' : 'var(--border)' }} />
             )}
           </div>
         );
@@ -91,6 +109,23 @@ function UserAvatar({ userId, size = 'sm' }: { userId: string; size?: 'sm' | 'md
 }
 
 // ─── Media rendering helpers ──────────────────────────────────────
+function ThemeToggleButton() {
+  const { theme, toggleTheme } = useTheme();
+  const isLight = theme === "light";
+  const Icon = isLight ? Moon : Sun;
+  return (
+    <button
+      type="button"
+      onClick={toggleTheme}
+      className="flex h-8 w-8 items-center justify-center rounded-lg border border-border/60 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      aria-label={isLight ? "Switch to dark mode" : "Switch to light mode"}
+      title={isLight ? "Dark mode" : "Light mode"}
+    >
+      <Icon className="h-4 w-4" />
+    </button>
+  );
+}
+
 function MediaBlock({ type, src, alt, rows }: {
   type: 'image' | 'table' | 'url';
   src?: string;
@@ -174,17 +209,17 @@ function ChatMessage({ msg, onQuote, onReply }: {
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex flex-row-reverse gap-3 group">
         <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
           style={{ background: 'var(--ai-bubble-bg)', border: '1px solid var(--ai-bubble-border)' }}>
-          <Bot className="w-4 h-4 text-blue-400" />
+          <Bot className="w-4 h-4" style={{ color: 'var(--rf-blue-fg)' }} />
         </div>
         <div className="flex max-w-[72%] flex-col items-end space-y-2">
           <div className="flex flex-row-reverse items-center gap-2 mb-1">
-            <span className="text-xs font-semibold text-blue-400">RF 분석 도우미</span>
+            <span className="text-xs font-semibold" style={{ color: 'var(--rf-blue-fg)' }}>RF 분석 도우미</span>
             <span className="text-[10px] text-muted-foreground">{msg.timestamp}</span>
-            <Sparkles className="w-3 h-3 text-blue-400/60" />
+            <Sparkles className="w-3 h-3" style={{ color: 'var(--rf-blue-fg)' }} />
             {onReply && (
               <button
                 onClick={() => onReply(msg)}
-                className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-[10px] text-muted-foreground hover:text-blue-400 ml-auto"
+                className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-[10px] text-muted-foreground hover:text-primary ml-auto"
               >
                 <Quote className="w-3 h-3" /> 답변
               </button>
@@ -217,7 +252,7 @@ function ChatMessage({ msg, onQuote, onReply }: {
               </span>
               {msg.extractedTags.map((tag, i) => (
                 <span key={i} className={tag.isNew ? 'sig-tag-new' : 'sig-tag'}>
-                  {tag.isNew && <span className="text-emerald-400">+</span>}
+                  {tag.isNew && <span style={{ color: 'var(--rf-green-fg)' }}>+</span>}
                   {tag.key}: {tag.value}
                 </span>
               ))}
@@ -285,8 +320,8 @@ function DBConfirmModal({ issue, onClose, onApprove, onReject }: {
         <div className="flex items-center justify-between p-5 border-b border-border">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center"
-              style={{ background: 'oklch(0.22 0.06 150 / 0.4)', border: '1px solid oklch(0.32 0.1 150 / 0.5)' }}>
-              <Database className="w-5 h-5 text-emerald-400" />
+              style={{ background: 'var(--rf-green-bg)', border: '1px solid var(--rf-green-border)' }}>
+              <Database className="w-5 h-5" style={{ color: 'var(--rf-green-fg)' }} />
             </div>
             <div>
               <h2 className="font-semibold text-foreground">Knowledge DB 등록 검토</h2>
@@ -300,18 +335,18 @@ function DBConfirmModal({ issue, onClose, onApprove, onReject }: {
         <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto">
           <div className="rounded-xl p-4 space-y-3" style={{ background: 'var(--panel-surface)', border: '1px solid var(--border)' }}>
             <h3 className="text-sm font-semibold text-foreground/90 flex items-center gap-2">
-              <FileText className="w-4 h-4 text-blue-400" /> RCA Summary
+              <FileText className="w-4 h-4" style={{ color: 'var(--rf-blue-fg)' }} /> RCA Summary
             </h3>
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div><p className="text-muted-foreground mb-0.5">이슈 제목</p><p className="text-foreground/90 font-medium">{issue.title}</p></div>
               <div><p className="text-muted-foreground mb-0.5">모델 / 단계</p><p className="text-foreground/90 font-mono">{issue.model}</p></div>
-              <div><p className="text-muted-foreground mb-0.5">확정 Root Cause</p><p className="text-emerald-400 font-medium">Shield Clip 접촉력 저하 → PIM</p></div>
+              <div><p className="text-muted-foreground mb-0.5">확정 Root Cause</p><p className="font-medium" style={{ color: 'var(--rf-green-fg)' }}>Shield Clip 접촉력 저하 → PIM</p></div>
               <div><p className="text-muted-foreground mb-0.5">개선 방법</p><p className="text-foreground/90">Shield Clip Spring Force 20% 증가</p></div>
             </div>
           </div>
           <div className="rounded-xl p-4 space-y-3" style={{ background: 'var(--panel-surface)', border: '1px solid var(--border)' }}>
             <h3 className="text-sm font-semibold text-foreground/90 flex items-center gap-2">
-              <Tag className="w-4 h-4 text-blue-400" /> Signature 태그
+              <Tag className="w-4 h-4" style={{ color: 'var(--rf-blue-fg)' }} /> Signature 태그
             </h3>
             <div className="flex flex-wrap gap-1.5">
               {issue.signatures.map((tag, i) => <span key={i} className="sig-tag">{tag.key}: {tag.value}</span>)}
@@ -319,7 +354,7 @@ function DBConfirmModal({ issue, onClose, onApprove, onReject }: {
           </div>
           <div className="rounded-xl p-4 space-y-2" style={{ background: 'var(--panel-surface)', border: '1px solid var(--border)' }}>
             <h3 className="text-sm font-semibold text-foreground/90 flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" /> 승인 체크리스트
+              <CheckCircle2 className="w-4 h-4" style={{ color: 'var(--rf-green-fg)' }} /> 승인 체크리스트
             </h3>
             {[
               { ok: true, text: '재현 조건이 명확히 기술되었습니다' },
@@ -328,18 +363,18 @@ function DBConfirmModal({ issue, onClose, onApprove, onReject }: {
               { ok: false, text: 'Mitigation 결과 검증 데이터가 필요합니다' },
             ].map((item, i) => (
               <div key={i} className="flex items-center gap-2 text-xs">
-                {item.ok ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" /> : <Info className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />}
-                <span className={item.ok ? 'text-foreground/70' : 'text-amber-300/80'}>{item.text}</span>
+                {item.ok ? <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--rf-green-fg)' }} /> : <Info className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--rf-amber-fg)' }} />}
+                <span className={item.ok ? 'text-foreground/70' : undefined} style={!item.ok ? { color: 'var(--rf-amber-fg)' } : undefined}>{item.text}</span>
               </div>
             ))}
           </div>
           {mode === 'reject' && (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
               className="rounded-xl p-4 space-y-2"
-              style={{ background: 'oklch(0.18 0.04 25 / 0.5)', border: '1px solid oklch(0.28 0.08 25 / 0.5)' }}>
-              <p className="text-sm font-medium text-rose-300">반려 사유를 입력하세요</p>
+              style={{ background: 'var(--rf-red-bg)', border: '1px solid var(--rf-red-border)' }}>
+              <p className="text-sm font-medium" style={{ color: 'var(--rf-red-fg)' }}>반려 사유를 입력하세요</p>
               <textarea
-                className="w-full bg-transparent text-sm text-foreground/90 border border-border rounded-lg p-2 resize-none outline-none focus:border-rose-500/50"
+                className="w-full bg-transparent text-sm text-foreground/90 border border-border rounded-lg p-2 resize-none outline-none focus:border-destructive/50"
                 rows={3}
                 placeholder="예: Mitigation 검증 데이터 첨부 후 재요청 바랍니다."
                 value={rejectReason}
@@ -350,19 +385,19 @@ function DBConfirmModal({ issue, onClose, onApprove, onReject }: {
         </div>
         <div className="flex items-center justify-between p-5 border-t border-border">
           <div className="text-xs text-muted-foreground flex items-center gap-1">
-            단독 분석 모드: <span className="text-amber-400 font-medium ml-1">사용자 확인 후 DB 등록</span>
+            단독 분석 모드: <span className="font-medium ml-1" style={{ color: 'var(--rf-amber-fg)' }}>사용자 확인 후 DB 등록</span>
           </div>
           <div className="flex items-center gap-2">
             {mode === 'review' ? (
               <>
                 <button onClick={() => setMode('reject')}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all hover:scale-[0.98]"
-                  style={{ background: 'oklch(0.22 0.06 25 / 0.5)', color: '#F87171', border: '1px solid oklch(0.32 0.1 25 / 0.5)' }}>
+                  style={{ background: 'var(--rf-red-bg)', color: 'var(--rf-red-fg)', border: '1px solid var(--rf-red-border)' }}>
                   <X className="w-4 h-4" /> 반려
                 </button>
                 <button onClick={onApprove}
                   className="flex items-center gap-1.5 px-5 py-2 rounded-lg text-sm font-semibold transition-all hover:scale-[0.98]"
-                  style={{ background: 'oklch(0.45 0.18 150)', color: 'white', boxShadow: '0 0 20px oklch(0.45 0.18 150 / 0.3)' }}>
+                  style={{ background: 'var(--primary)', color: 'var(--primary-foreground)', boxShadow: '0 0 20px var(--ring)' }}>
                   <Check className="w-4 h-4" /> DB 등록 승인
                 </button>
               </>
@@ -371,7 +406,7 @@ function DBConfirmModal({ issue, onClose, onApprove, onReject }: {
                 <button onClick={() => setMode('review')} className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground transition-colors">취소</button>
                 <button onClick={() => onReject(rejectReason)} disabled={!rejectReason.trim()}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-40"
-                  style={{ background: 'oklch(0.45 0.18 25)', color: 'white' }}>
+                  style={{ background: 'var(--destructive)', color: 'var(--destructive-foreground)' }}>
                   <X className="w-4 h-4" /> 반려 확정
                 </button>
               </>
@@ -468,7 +503,7 @@ function CreateIssueModal({
           </label>
         </div>
         <div className="flex items-center justify-end gap-2 border-t border-border p-4">
-          <button onClick={onClose} className="rounded-lg px-3 py-2 text-xs text-muted-foreground hover:bg-white/5 hover:text-foreground">
+          <button onClick={onClose} className="rounded-lg px-3 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground">
             취소
           </button>
           <button onClick={submit} disabled={!canSubmit}
@@ -971,13 +1006,13 @@ function ImportReviewModal({
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <aside className="w-80 flex-shrink-0 overflow-y-auto border-r border-border/60 p-3" style={{ background: 'var(--sidebar)' }}>
-            <div className="mb-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-3">
-              <p className="text-xs font-semibold text-emerald-300">통과 후보</p>
+            <div className="mb-3 rounded-xl border p-3" style={{ background: 'var(--rf-green-bg)', borderColor: 'var(--rf-green-border)' }}>
+              <p className="text-xs font-semibold" style={{ color: 'var(--rf-green-fg)' }}>통과 후보</p>
               <p className="mt-1 text-[10px] text-muted-foreground">체크한 후보만 DB 등록 승인됩니다.</p>
             </div>
             <div className="space-y-2">
               {passed.map(candidate => (
-                <div key={candidate.id} className={cn("rounded-lg border p-2.5", selected?.id === candidate.id ? "border-primary/40 bg-primary/10" : "border-border/60 hover:bg-white/5")}>
+                <div key={candidate.id} className={cn("rounded-lg border p-2.5", selected?.id === candidate.id ? "border-primary/40 bg-primary/10" : "border-border/60 hover:bg-accent")}>
                   <div className="flex items-start gap-2">
                     <input
                       type="checkbox"
@@ -999,8 +1034,8 @@ function ImportReviewModal({
               {passed.length === 0 && <p className="py-3 text-center text-xs text-muted-foreground">통과 후보가 없습니다.</p>}
             </div>
 
-            <div className="mb-3 mt-5 rounded-xl border border-amber-500/25 bg-amber-500/10 p-3">
-              <p className="text-xs font-semibold text-amber-300">보류 후보</p>
+            <div className="mb-3 mt-5 rounded-xl border p-3" style={{ background: 'var(--rf-amber-bg)', borderColor: 'var(--rf-amber-border)' }}>
+              <p className="text-xs font-semibold" style={{ color: 'var(--rf-amber-fg)' }}>보류 후보</p>
               <p className="mt-1 text-[10px] text-muted-foreground">자동 등록하지 않고 사유만 확인합니다.</p>
             </div>
             <div className="space-y-2">
@@ -1008,7 +1043,7 @@ function ImportReviewModal({
                 <button
                   key={candidate.id}
                   onClick={() => onSelect(candidate.id)}
-                  className={cn("w-full rounded-lg border p-2.5 text-left", selected?.id === candidate.id ? "border-amber-400/50 bg-amber-500/10" : "border-border/60 hover:bg-white/5")}
+                  className={cn("w-full rounded-lg border p-2.5 text-left", selected?.id === candidate.id ? "bg-[var(--rf-amber-bg)] border-[var(--rf-amber-border)]" : "border-border/60 hover:bg-accent")}
                 >
                   <p className="line-clamp-2 text-xs font-medium text-foreground/80">{candidate.caseData.title}</p>
                   <p className="mt-1 text-[10px] text-muted-foreground">AI 신뢰도 {candidate.score}% · 등록 보류</p>
@@ -1023,7 +1058,7 @@ function ImportReviewModal({
               <div className="mx-auto max-w-5xl space-y-4">
                 <section className={cn(
                   "rounded-xl border p-4",
-                  selected.status === 'candidate' ? "border-emerald-500/30 bg-emerald-500/10" : "border-amber-500/30 bg-amber-500/10"
+                  selected.status === 'candidate' ? "border-[var(--rf-green-border)] bg-[var(--rf-green-bg)]" : "border-[var(--rf-amber-border)] bg-[var(--rf-amber-bg)]"
                 )}>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
@@ -1032,16 +1067,16 @@ function ImportReviewModal({
                         매칭 taxonomy: {selectedInsight.category} · 추출 Signature {selected.caseData.signatures.length}개 · AI 신뢰도 {selected.score}%
                       </p>
                     </div>
-                    <button onClick={() => setOriginalCandidateId(selected.id)} className="rounded-lg border border-border/60 px-3 py-1.5 text-xs text-foreground/80 hover:bg-white/5">
+                    <button onClick={() => setOriginalCandidateId(selected.id)} className="rounded-lg border border-border/60 px-3 py-1.5 text-xs text-foreground/80 hover:bg-accent">
                       원본 보기
                     </button>
                     {selected.status === 'candidate' && (
-                      <button onClick={() => onToggle(selected.id)} className="rounded-lg border border-border/60 px-3 py-1.5 text-xs text-foreground/80 hover:bg-white/5">
+                      <button onClick={() => onToggle(selected.id)} className="rounded-lg border border-border/60 px-3 py-1.5 text-xs text-foreground/80 hover:bg-accent">
                         {checkedIds.includes(selected.id) ? '선택 해제' : '등록 후보 선택'}
                       </button>
                     )}
                     {selected.status === 'hold' && (
-                      <button onClick={() => onPromoteHold(selected.id)} className="rounded-lg border border-amber-400/50 px-3 py-1.5 text-xs text-amber-200 hover:bg-amber-500/10">
+                      <button onClick={() => onPromoteHold(selected.id)} className="rounded-lg border px-3 py-1.5 text-xs hover:bg-accent" style={{ borderColor: 'var(--rf-amber-border)', color: 'var(--rf-amber-fg)' }}>
                         Review 후 등록 후보 전환
                       </button>
                     )}
@@ -1049,7 +1084,7 @@ function ImportReviewModal({
                   {selected.duplicateMatch?.matchedCaseId && (
                     <div className={cn(
                       "mt-3 rounded-lg border p-3 text-xs",
-                      selected.duplicateMatch.duplicate ? "border-rose-400/30 bg-rose-500/10 text-rose-100" : "border-blue-400/30 bg-blue-500/10 text-blue-100"
+                      selected.duplicateMatch.duplicate ? "border-[var(--rf-red-border)] bg-[var(--rf-red-bg)]" : "border-[var(--rf-blue-border)] bg-[var(--rf-blue-bg)]"
                     )}>
                       <p className="font-semibold">
                         {selected.duplicateMatch.duplicate ? 'Duplicate candidate' : 'Closest Knowledge DB match'}: {selected.duplicateMatch.matchedCaseId}
@@ -1089,11 +1124,11 @@ function ImportReviewModal({
 
         <div className="flex items-center justify-between border-t border-border p-4">
           <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
+            <AlertTriangle className="h-3.5 w-3.5" style={{ color: 'var(--rf-amber-fg)' }} />
             현재 등록은 브라우저 세션 state에만 반영됩니다.
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={onClose} className="rounded-lg px-3 py-2 text-xs text-muted-foreground hover:bg-white/5 hover:text-foreground">닫기</button>
+            <button onClick={onClose} className="rounded-lg px-3 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground">닫기</button>
             <button
               onClick={onApproveSelected}
               disabled={selectedCheckedCount === 0}
@@ -1300,7 +1335,7 @@ function KnowledgeDbWorkspace({
               />
               <button
                 onClick={() => importInputRef.current?.click()}
-                className="inline-flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
+                className="inline-flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               >
                 <Upload className="h-3 w-3" />
                 Import
@@ -1309,7 +1344,7 @@ function KnowledgeDbWorkspace({
           </div>
           <div className="grid grid-cols-2 rounded-lg border border-border/60 p-0.5" style={{ background: 'var(--panel-surface)' }}>
             <button className="rounded-md bg-primary/10 px-2 py-1 text-[10px] font-semibold text-primary">사례</button>
-            <button onClick={() => setWorkspaceTab('dictionary')} className="rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-white/5 hover:text-foreground">Signature 사전</button>
+            <button onClick={() => setWorkspaceTab('dictionary')} className="rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground">Signature 사전</button>
           </div>
           {signatureFilter && (
             <div className="rounded-lg border border-primary/30 bg-primary/10 px-2 py-1.5 text-[10px] text-primary">
@@ -1346,7 +1381,7 @@ function KnowledgeDbWorkspace({
                     "rounded-full border px-2 py-0.5 text-[10px] transition-colors",
                     categoryFilter === category
                       ? "border-primary/50 bg-primary/15 text-primary"
-                      : "border-border/60 text-muted-foreground hover:text-foreground hover:bg-white/5"
+                      : "border-border/60 text-muted-foreground hover:text-foreground hover:bg-accent"
                   )}
                 >
                   {category} · {count}
@@ -1378,15 +1413,17 @@ function KnowledgeDbWorkspace({
               onClick={() => setSelectedCaseId(item.id)}
               className={cn(
                 "w-full rounded-lg border p-2.5 text-left transition-colors",
-                selectedCase?.id === item.id ? "border-primary/30 bg-primary/10" : "border-transparent hover:bg-white/5"
+                selectedCase?.id === item.id ? "border-primary/30 bg-primary/10" : "border-transparent hover:bg-accent"
               )}
             >
               <div className="mb-1 flex items-center justify-between gap-2">
                 <span className="font-mono text-[10px] text-muted-foreground">{item.id}</span>
-                <span className={cn(
-                  "rounded-full px-1.5 py-0.5 text-[9px]",
-                  item.status === 'confirmed' ? "bg-emerald-500/10 text-emerald-300" : "bg-blue-500/10 text-blue-300"
-                )}>
+                <span
+                  className="rounded-full border px-1.5 py-0.5 text-[9px]"
+                  style={item.status === 'confirmed'
+                    ? { background: 'var(--rf-green-bg)', borderColor: 'var(--rf-green-border)', color: 'var(--rf-green-fg)' }
+                    : { background: 'var(--rf-blue-bg)', borderColor: 'var(--rf-blue-border)', color: 'var(--rf-blue-fg)' }}
+                >
                   {item.status === 'confirmed' ? '확정' : '검증'}
                 </span>
               </div>
@@ -1528,7 +1565,7 @@ function SignatureDictionaryWorkspace({
             <p className="mt-1 text-[10px] text-muted-foreground">전체 key/value, 빈도, 연결 사례를 관리합니다.</p>
           </div>
           <div className="grid grid-cols-2 rounded-lg border border-border/60 p-0.5" style={{ background: 'var(--panel-surface)' }}>
-            <button onClick={onShowCases} className="rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-white/5 hover:text-foreground">사례</button>
+            <button onClick={onShowCases} className="rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground">사례</button>
             <button className="rounded-md bg-primary/10 px-2 py-1 text-[10px] font-semibold text-primary">Signature 사전</button>
           </div>
           <div className="flex items-center gap-2 rounded-lg border border-border/60 px-2 py-1.5" style={{ background: 'var(--panel-surface)' }}>
@@ -1549,7 +1586,7 @@ function SignatureDictionaryWorkspace({
             <p className="mb-2 text-[10px] font-semibold text-muted-foreground">Key별 빈도</p>
             <div className="flex max-h-40 flex-wrap gap-1 overflow-y-auto">
               {Object.entries(keyCounts).sort((a, b) => b[1] - a[1]).map(([key, count]) => (
-                <button key={key} onClick={() => onFilterKnowledge({ key })} className="rounded-full border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-white/5 hover:text-foreground">
+                <button key={key} onClick={() => onFilterKnowledge({ key })} className="rounded-full border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground">
                   {key} · {count}
                 </button>
               ))}
@@ -1578,8 +1615,8 @@ function SignatureDictionaryWorkspace({
                     <span className="rounded-full border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground">빈도 {item.count}</span>
                     {customIndex >= 0 && (
                       <>
-                        <button onClick={() => startEdit(customIndex)} className="text-[10px] text-blue-300 hover:underline">편집</button>
-                        <button onClick={() => deleteCustom(customIndex)} className="text-[10px] text-rose-300 hover:underline">삭제</button>
+                        <button onClick={() => startEdit(customIndex)} className="text-[10px] hover:underline" style={{ color: 'var(--rf-blue-fg)' }}>편집</button>
+                        <button onClick={() => deleteCustom(customIndex)} className="text-[10px] hover:underline" style={{ color: 'var(--rf-red-fg)' }}>삭제</button>
                       </>
                     )}
                   </div>
@@ -1619,8 +1656,9 @@ export default function Home() {
   const startXRef = useRef(0);
   const startWRef = useRef(0);
 
-  const selectedIssue = issues.find(i => i.id === selectedIssueId)!;
+  const selectedIssue = issues.find(i => i.id === selectedIssueId) ?? issues[0];
   const canOpenRcaDraft =
+    !!selectedIssue &&
     selectedIssue.status !== 'confirmed' &&
     selectedIssue.status !== 'archived' &&
     selectedIssue.hypotheses.some(h => h.status === 'validated' || h.confidence >= 70);
@@ -1642,6 +1680,12 @@ export default function Home() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (issues.length > 0 && !issues.some(issue => issue.id === selectedIssueId)) {
+      setSelectedIssueId(issues[0].id);
+    }
+  }, [issues, selectedIssueId]);
 
   const persistKnowledgeCase = async (item: KnowledgeCase) => {
     const persistableCase: KnowledgeCase = {
@@ -1700,6 +1744,28 @@ export default function Home() {
     setShowCreateIssueModal(false);
     setActivePanel('summary');
     toast.success('새 이슈가 생성되었습니다.', { description: saved.id });
+  };
+
+  const handleRemoveIssueFromList = async (issue: Issue) => {
+    if (!canRemoveIssueFromList(issue)) return;
+    const confirmed = window.confirm(`${issue.id}를 이슈 목록에서 삭제할까요?\nKnowledge DB 사례는 삭제되지 않습니다.`);
+    if (!confirmed) return;
+
+    const previousIssues = issues;
+    const nextIssues = issues.filter(item => item.id !== issue.id);
+    setIssues(nextIssues);
+    if (selectedIssueId === issue.id) {
+      setSelectedIssueId(nextIssues[0]?.id ?? '');
+    }
+
+    try {
+      await replaceIssues(nextIssues.map(toPersistableIssue));
+      toast.success('이슈 목록에서 삭제했습니다.', { description: 'Knowledge DB는 변경하지 않았습니다.' });
+    } catch (error) {
+      setIssues(previousIssues);
+      setSelectedIssueId(selectedIssueId);
+      toast.error('이슈 목록 삭제 저장에 실패했습니다.', { description: error instanceof Error ? error.message : String(error) });
+    }
   };
 
   useEffect(() => {
@@ -1772,6 +1838,7 @@ export default function Home() {
 
   // ─── Chat handlers ─────────────────────────────────────────────
   const handleSend = () => {
+    if (!selectedIssue) return;
     const content = quotedText
       ? `> 인용 (${quotedText.source}): "${quotedText.text}"\n\n${inputValue}`
       : inputValue;
@@ -1820,6 +1887,7 @@ export default function Home() {
   };
 
   const handleApprove = async () => {
+    if (!selectedIssue) return;
     try {
       await persistKnowledgeCase(buildKnowledgeCaseFromIssue(selectedIssue));
       setIssues(prev => prev.map(iss => iss.id === selectedIssueId ? { ...iss, status: 'confirmed' } : iss));
@@ -1843,8 +1911,8 @@ export default function Home() {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg flex items-center justify-center"
-              style={{ background: 'oklch(0.25 0.1 260 / 0.5)', border: '1px solid oklch(0.35 0.12 260 / 0.5)' }}>
-              <Radio className="w-4 h-4 text-blue-400" />
+              style={{ background: 'var(--rf-blue-bg)', border: '1px solid var(--rf-blue-border)' }}>
+              <Radio className="w-4 h-4" style={{ color: 'var(--rf-blue-fg)' }} />
             </div>
             <span className="font-mono font-bold text-sm text-foreground">RF·FIP</span>
           </div>
@@ -1853,7 +1921,7 @@ export default function Home() {
             <button
               className={cn(
                 "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors",
-                activeView === 'issues' ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                activeView === 'issues' ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-accent"
               )}
               onClick={() => setActiveView('issues')}
             >
@@ -1863,7 +1931,7 @@ export default function Home() {
             <button
               className={cn(
                 "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors",
-                activeView === 'knowledge' ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                activeView === 'knowledge' ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-accent"
               )}
               onClick={() => { setKnowledgeSignatureFilter(null); setActiveView('knowledge'); }}
             >
@@ -1873,8 +1941,9 @@ export default function Home() {
           </nav>
         </div>
         <div className="flex items-center gap-2">
+          <ThemeToggleButton />
 
-          <div className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
+          <div className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-accent transition-colors cursor-pointer"
             onClick={() => toast.info('단독 분석 모드입니다.')}>
             <UserAvatar userId="kim" size="sm" />
             <span className="text-xs text-muted-foreground">단독 분석자</span>
@@ -1904,7 +1973,7 @@ export default function Home() {
           style={{ background: 'var(--sidebar)' }}>
           <div className="flex items-center justify-between px-3 py-2.5 border-b border-border/60">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">이슈 목록</span>
-            <button className="w-6 h-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
+            <button className="w-6 h-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
               onClick={() => setShowCreateIssueModal(true)}
               aria-label="Create issue">
               <Plus className="w-3.5 h-3.5" />
@@ -1912,25 +1981,48 @@ export default function Home() {
           </div>
           <div className="flex-1 overflow-y-auto p-2 space-y-1">
             {issues.map(issue => (
-              <button key={issue.id} onClick={() => setSelectedIssueId(issue.id)}
-                className={cn("w-full text-left rounded-lg p-2.5 transition-all duration-150",
-                  selectedIssueId === issue.id ? "bg-primary/10 border border-primary/20" : "hover:bg-white/5 border border-transparent"
+              <div key={issue.id}
+                className={cn("group relative rounded-lg border transition-all duration-150",
+                  selectedIssueId === issue.id ? "bg-primary/10 border-primary/20" : "border-transparent hover:bg-accent"
                 )}>
-                <div className="flex items-start justify-between gap-1 mb-1">
-                  <span className="font-mono text-[10px] text-muted-foreground">{issue.id}</span>
-                  <StatusBadge status={issue.status} />
-                </div>
-                <p className="text-xs font-medium text-foreground/90 leading-snug mb-1.5 line-clamp-2">{issue.title}</p>
-                <div className="flex items-center gap-1.5">
-                  <span className="sig-tag text-[10px]">{issue.band}</span>
-                  <span className="text-[10px] text-muted-foreground">{issue.model.split(' ')[1]}</span>
-                </div>
-              </button>
+                <button onClick={() => setSelectedIssueId(issue.id)} className="w-full rounded-lg p-2.5 pr-8 text-left">
+                  <div className="flex items-start justify-between gap-1 mb-1">
+                    <span className="font-mono text-[10px] text-muted-foreground">{issue.id}</span>
+                    <StatusBadge status={issue.status} />
+                  </div>
+                  <p className="text-xs font-medium text-foreground/90 leading-snug mb-1.5 line-clamp-2">{issue.title}</p>
+                  <div className="flex items-center gap-1.5">
+                    <span className="sig-tag text-[10px]">{issue.band}</span>
+                    <span className="text-[10px] text-muted-foreground">{issue.model.split(' ')[1]}</span>
+                  </div>
+                </button>
+                {canRemoveIssueFromList(issue) && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleRemoveIssueFromList(issue);
+                    }}
+                    className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-destructive group-hover:opacity-100 focus:opacity-100"
+                    aria-label={`${issue.id} 이슈 목록에서 삭제`}
+                    title="이슈 목록에서 삭제"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
             ))}
+            {issues.length === 0 && (
+              <div className="px-3 py-8 text-center text-xs text-muted-foreground">
+                표시할 이슈가 없습니다.
+              </div>
+            )}
           </div>
         </aside>
 
         {/* Center Panel — Chat */}
+        {selectedIssue ? (
+        <>
         <main className="flex-1 flex flex-col overflow-hidden min-w-0">
           {/* Issue Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border/60 flex-shrink-0"
@@ -1950,14 +2042,14 @@ export default function Home() {
               {selectedIssue.status !== 'confirmed' && selectedIssue.status !== 'archived' && (
                 <button onClick={() => setShowRcaModal(true)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:scale-[0.98]"
-                  style={{ background: 'oklch(0.45 0.18 150)', color: 'white', boxShadow: '0 0 16px oklch(0.45 0.18 150 / 0.25)' }}>
+                  style={{ background: 'var(--primary)', color: 'var(--primary-foreground)', boxShadow: '0 0 16px var(--ring)' }}>
                   <Database className="w-3.5 h-3.5" />
                   RCA 요약 & DB 등록
                 </button>
               )}
               {selectedIssue.status === 'confirmed' && (
                 <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
-                  style={{ background: 'oklch(0.22 0.06 150 / 0.4)', color: '#34D399', border: '1px solid oklch(0.32 0.1 150 / 0.5)' }}>
+                  style={{ background: 'var(--rf-green-bg)', color: 'var(--rf-green-fg)', border: '1px solid var(--rf-green-border)' }}>
                   <CheckCircle2 className="w-3.5 h-3.5" /> DB 등록 완료
                 </div>
               )}
@@ -1968,7 +2060,7 @@ export default function Home() {
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {selectedIssue.messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-center">
-                <Bot className="w-10 h-10 text-blue-400/40 mb-3" />
+                <Bot className="w-10 h-10 mb-3" style={{ color: 'var(--rf-blue-fg)', opacity: 0.5 }} />
                 <p className="text-sm text-muted-foreground">대화 내역이 없습니다.</p>
               </div>
             ) : (
@@ -1993,11 +2085,12 @@ export default function Home() {
               <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex flex-row-reverse gap-3">
                 <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
                   style={{ background: 'var(--ai-bubble-bg)', border: '1px solid var(--ai-bubble-border)' }}>
-                  <Bot className="w-4 h-4 text-blue-400" />
+                  <Bot className="w-4 h-4" style={{ color: 'var(--rf-blue-fg)' }} />
                 </div>
                 <div className="bubble-ai w-fit rounded-xl rounded-tr-sm px-4 py-3 flex items-center gap-1">
                   {[0, 1, 2].map(i => (
-                    <motion.div key={i} className="w-1.5 h-1.5 rounded-full bg-blue-400"
+                    <motion.div key={i} className="w-1.5 h-1.5 rounded-full"
+                      style={{ background: 'var(--rf-blue-fg)' }}
                       animate={{ opacity: [0.3, 1, 0.3], y: [0, -3, 0] }}
                       transition={{ duration: 0.8, repeat: Infinity, delay: i * 0.15 }} />
                   ))}
@@ -2059,7 +2152,7 @@ export default function Home() {
                   e.currentTarget.value = '';
                 }}
               />
-              <button className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors flex-shrink-0"
+              <button className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex-shrink-0"
                 onClick={() => fileInputRef.current?.click()}>
                 <Paperclip className="w-4 h-4" />
               </button>
@@ -2205,6 +2298,21 @@ export default function Home() {
             </AnimatePresence>
           </div>
         </aside>
+        </>
+        ) : (
+          <main className="flex-1 overflow-hidden min-w-0">
+            <div className="flex h-full flex-col items-center justify-center text-center text-sm text-muted-foreground">
+              <FileText className="mb-3 h-8 w-8 opacity-40" />
+              <p>선택할 이슈가 없습니다.</p>
+              <button
+                onClick={() => setShowCreateIssueModal(true)}
+                className="mt-3 rounded-lg border border-border px-3 py-1.5 text-xs text-foreground hover:bg-accent"
+              >
+                새 이슈 생성
+              </button>
+            </div>
+          </main>
+        )}
       </div>
         </>
       )}
@@ -2214,10 +2322,10 @@ export default function Home() {
         {showCreateIssueModal && (
           <CreateIssueModal onClose={() => setShowCreateIssueModal(false)} onCreate={handleCreateIssue} />
         )}
-        {showConfirmModal && (
+        {showConfirmModal && selectedIssue && (
           <DBConfirmModal issue={selectedIssue} onClose={() => setShowConfirmModal(false)} onApprove={handleApprove} onReject={handleReject} />
         )}
-        {showRcaModal && (
+        {showRcaModal && selectedIssue && (
           <RcaSummaryModal issue={selectedIssue} onClose={() => setShowRcaModal(false)} onSubmit={() => { setShowRcaModal(false); setShowConfirmModal(true); }} onApprove={handleApprove} />
         )}
       </AnimatePresence>

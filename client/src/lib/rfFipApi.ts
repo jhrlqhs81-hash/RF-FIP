@@ -96,6 +96,22 @@ export async function saveIssue(item: Issue): Promise<Issue> {
   return payload.item;
 }
 
+export async function replaceIssues(items: Issue[]): Promise<Issue[]> {
+  try {
+    const payload = await requestJson<{ items: Issue[] }>("/api/issues", {
+      method: "PUT",
+      body: JSON.stringify({ items }),
+    });
+    return payload.items;
+  } catch (error) {
+    if (error instanceof PersistenceApiUnavailableError || error instanceof TypeError) {
+      console.info("RF-FIP persistence API is unavailable; issue removal is session-only.");
+      return items;
+    }
+    throw error;
+  }
+}
+
 export async function saveKnowledgeCase(item: KnowledgeCase): Promise<KnowledgeCase> {
   const payload = await requestJson<{ item: KnowledgeCase }>("/api/knowledge-cases", {
     method: "POST",

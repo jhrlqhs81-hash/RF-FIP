@@ -54,17 +54,17 @@ function SimilarCaseCard({ kc, isTop, previewSigs, onQuoteToChat }: {
           ? "border-emerald-500/30"
           : "border-border/60"
       )}
-      style={{ background: isTop ? 'oklch(0.19 0.025 150)' : 'oklch(0.165 0.015 264)' }}
+      style={{ background: isTop ? 'var(--rf-green-bg)' : 'var(--rf-card-bg)' }}
     >
       {/* Header */}
       <button
-        className="w-full flex items-start gap-2 p-2.5 text-left hover:bg-white/5 transition-colors"
+        className="w-full flex items-start gap-2 p-2.5 text-left hover:bg-accent transition-colors"
         onClick={() => setModalOpen(true)}
       >
         {/* Similarity ring */}
         <div className="flex-shrink-0 mt-0.5">
           <svg width="28" height="28" viewBox="0 0 28 28">
-            <circle cx="14" cy="14" r="11" fill="none" stroke="oklch(0.25 0.016 264)" strokeWidth="2.5" />
+            <circle cx="14" cy="14" r="11" fill="none" stroke="var(--border)" strokeWidth="2.5" />
             <circle
               cx="14" cy="14" r="11"
               fill="none"
@@ -88,7 +88,7 @@ function SimilarCaseCard({ kc, isTop, previewSigs, onQuoteToChat }: {
             <span className="font-mono text-[10px] text-muted-foreground">{kc.id}</span>
             {isTop && (
               <span className="text-[9px] px-1 py-0.5 rounded font-bold"
-                style={{ background: 'oklch(0.28 0.08 150)', color: '#6EE7B7' }}>
+                style={{ background: 'var(--rf-green-bg)', color: 'var(--rf-green-fg)', border: '1px solid var(--rf-green-border)' }}>
                 최고 유사
               </span>
             )}
@@ -109,7 +109,7 @@ function SimilarCaseCard({ kc, isTop, previewSigs, onQuoteToChat }: {
           {matchedKeys.slice(0, 4).map(k => (
             <span key={k}
               className="text-[9px] px-1.5 py-0.5 rounded font-mono"
-              style={{ background: 'oklch(0.22 0.04 260)', color: '#93C5FD', border: '1px solid oklch(0.3 0.06 260)' }}
+              style={{ background: 'var(--rf-blue-bg)', color: 'var(--rf-blue-fg)', border: '1px solid var(--rf-blue-border)' }}
             >
               ✓ {k}
             </span>
@@ -146,11 +146,11 @@ function SimilarCaseCard({ kc, isTop, previewSigs, onQuoteToChat }: {
                 <p className="text-[11px] text-foreground/80 leading-snug">{kc.mitigation}</p>
               </div>
               <div className="grid grid-cols-1 gap-2">
-                <div className="rounded-md border border-border/50 p-2 bg-black/10">
+                <div className="rounded-md border border-border/50 p-2" style={{ background: 'var(--panel-surface-2)' }}>
                   <p className="text-[10px] text-muted-foreground mb-0.5">원인 분류</p>
-                  <p className="text-[11px] text-cyan-200 leading-snug">{insight.category}</p>
+                  <p className="text-[11px] leading-snug" style={{ color: 'var(--rf-blue-fg)' }}>{insight.category}</p>
                 </div>
-                <div className="rounded-md border border-border/50 p-2 bg-black/10">
+                <div className="rounded-md border border-border/50 p-2" style={{ background: 'var(--panel-surface-2)' }}>
                   <p className="text-[10px] text-muted-foreground mb-0.5">권장 판별 시험</p>
                   <ul className="space-y-0.5">
                     {insight.diagnosticTests.slice(0, 3).map((test, idx) => (
@@ -183,7 +183,10 @@ function SimilarCaseCard({ kc, isTop, previewSigs, onQuoteToChat }: {
                           : <span className="w-2.5 h-2.5 flex-shrink-0" />
                         }
                         <span className="text-muted-foreground font-mono">{t.key}:</span>
-                        <span className={isMatch && isValueMatch ? 'text-emerald-300' : isMatch ? 'text-amber-300' : 'text-foreground/50'}>
+                        <span
+                          className={!isMatch ? 'text-foreground/50' : undefined}
+                          style={isMatch ? { color: isValueMatch ? 'var(--rf-green-fg)' : 'var(--rf-amber-fg)' } : undefined}
+                        >
                           {t.value}
                         </span>
                         {isMatch && !isValueMatch && curMatch && (
@@ -203,7 +206,7 @@ function SimilarCaseCard({ kc, isTop, previewSigs, onQuoteToChat }: {
                     `유사 사례 DB (${kc.id})`
                   )}
                   className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium w-full justify-center transition-all hover:scale-[0.98] mt-1"
-                  style={{ background: 'oklch(0.22 0.06 55 / 0.4)', color: '#FCD34D', border: '1px solid oklch(0.32 0.1 55 / 0.4)' }}
+                  style={{ background: 'var(--rf-amber-bg)', color: 'var(--rf-amber-fg)', border: '1px solid var(--rf-amber-border)' }}
                 >
                   <MessageSquare className="w-3 h-3" /> 이 사례 채팅에 인용
                 </button>
@@ -267,7 +270,7 @@ export function SimilarCasesPanel({ signatures, previewSigs = [], onQuoteToChat 
         </p>
         {isPreview && (
           <span className="text-[9px] px-1.5 py-0.5 rounded font-medium animate-pulse"
-            style={{ background: 'oklch(0.22 0.08 260)', color: '#93C5FD', border: '1px solid oklch(0.3 0.1 260)' }}>
+            style={{ background: 'var(--rf-blue-bg)', color: 'var(--rf-blue-fg)', border: '1px solid var(--rf-blue-border)' }}>
             실시간 미리보기
           </span>
         )}
@@ -434,7 +437,7 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate, onQuoteToCha
           <div className="flex items-center gap-1.5">
             {aiCount > 0 && (
               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium"
-                style={{ background: 'oklch(0.22 0.06 150)', color: '#6EE7B7', border: '1px solid oklch(0.3 0.08 150)' }}>
+                style={{ background: 'var(--rf-green-bg)', color: 'var(--rf-green-fg)', border: '1px solid var(--rf-green-border)' }}>
                 <Sparkles className="w-2.5 h-2.5" />
                 AI {aiCount}
               </span>
@@ -447,7 +450,7 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate, onQuoteToCha
                 <PopoverTrigger asChild>
                   <button
                     className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all hover:scale-[0.97] active:scale-[0.95]"
-                    style={{ background: 'oklch(0.25 0.08 260)', color: '#93C5FD', border: '1px solid oklch(0.35 0.1 260)' }}
+                    style={{ background: 'var(--rf-blue-bg)', color: 'var(--rf-blue-fg)', border: '1px solid var(--rf-blue-border)' }}
                   >
                     <Plus className="w-3 h-3" /> 추가
                   </button>
@@ -455,7 +458,7 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate, onQuoteToCha
                 <PopoverContent
                   side="left" align="start" sideOffset={8}
                   className="w-72 p-0 overflow-hidden"
-                  style={{ background: 'oklch(0.17 0.015 264)', border: '1px solid oklch(0.26 0.018 264)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}
+                  style={{ background: 'var(--popover)', border: '1px solid var(--border)', boxShadow: '0 8px 32px oklch(0 0 0 / 0.18)' }}
                 >
                   {/* Add form */}
                   <div className="p-3 border-b border-border/60 space-y-2">
@@ -464,7 +467,7 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate, onQuoteToCha
                       <Tag className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
                       <input
                         className="w-full text-xs text-foreground/90 pl-6 pr-2 py-1.5 rounded-md outline-none font-mono"
-                        style={{ background: 'oklch(0.22 0.016 264)', border: '1px solid oklch(0.28 0.018 264)' }}
+                        style={{ background: 'var(--input)', border: '1px solid var(--border)' }}
                         placeholder="키 검색 또는 직접 입력..."
                         value={keySearch}
                         onChange={e => { setKeySearch(e.target.value); setAddKey(e.target.value); }}
@@ -474,7 +477,7 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate, onQuoteToCha
                     <input
                       ref={addValRef}
                       className="w-full text-xs text-foreground/90 px-2 py-1.5 rounded-md outline-none"
-                      style={{ background: 'oklch(0.22 0.016 264)', border: '1px solid oklch(0.28 0.018 264)' }}
+                      style={{ background: 'var(--input)', border: '1px solid var(--border)' }}
                       placeholder="값 입력..."
                       value={addVal}
                       onChange={e => setAddVal(e.target.value)}
@@ -484,7 +487,7 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate, onQuoteToCha
                       onClick={commitAdd}
                       disabled={!addKey.trim() || !addVal.trim()}
                       className="w-full py-1.5 rounded-md text-xs font-semibold transition-all disabled:opacity-30 hover:opacity-90"
-                      style={{ background: 'oklch(0.45 0.18 260)', color: 'white' }}
+                      style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
                     >
                       추가
                     </button>
@@ -499,7 +502,7 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate, onQuoteToCha
                       filteredTaxonomy.map(cat => (
                         <div key={cat.category}>
                           <button
-                            className="w-full flex items-center justify-between px-3 py-1.5 text-[10px] font-semibold text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors uppercase tracking-wider"
+                            className="w-full flex items-center justify-between px-3 py-1.5 text-[10px] font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors uppercase tracking-wider"
                             onClick={() => setExpandedCat(expandedCat === cat.category ? null : cat.category)}
                           >
                             {cat.category}
@@ -510,7 +513,7 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate, onQuoteToCha
                               <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden">
                                 {cat.keys.map(k => (
                                   <button key={k}
-                                    className="w-full text-left px-5 py-1 text-xs text-foreground/70 hover:text-foreground hover:bg-white/5 transition-colors font-mono"
+                                    className="w-full text-left px-5 py-1 text-xs text-foreground/70 hover:text-foreground hover:bg-accent transition-colors font-mono"
                                     onClick={() => selectPresetKey(k)}
                                   >
                                     {k}
@@ -542,12 +545,12 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate, onQuoteToCha
                 transition={{ duration: 0.18 }}
                 className="group rounded-lg overflow-hidden"
                 style={{
-                  background: 'oklch(0.17 0.015 264)',
+                  background: 'var(--rf-card-bg)',
                   border: editingIdx === i
                     ? '1px solid oklch(0.45 0.18 260)'
                     : tag.isNew
-                    ? '1px solid oklch(0.3 0.08 150)'
-                    : '1px solid oklch(0.22 0.016 264)',
+                    ? '1px solid var(--rf-green-border)'
+                    : '1px solid var(--rf-card-border)',
                 }}
               >
                 {editingIdx === i ? (
@@ -556,7 +559,7 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate, onQuoteToCha
                       <span className="text-[10px] text-muted-foreground w-6 flex-shrink-0 text-right">키</span>
                       <input
                         className="flex-1 bg-transparent text-xs text-foreground/90 px-2 py-1 rounded outline-none font-mono"
-                        style={{ background: 'oklch(0.22 0.016 264)', border: '1px solid oklch(0.35 0.1 260)' }}
+                        style={{ background: 'var(--input)', border: '1px solid var(--rf-blue-border)' }}
                         value={editKey}
                         onChange={e => setEditKey(e.target.value)}
                         onKeyDown={e => { if (e.key === 'Enter') editValRef.current?.focus(); if (e.key === 'Escape') cancelEdit(); }}
@@ -567,7 +570,7 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate, onQuoteToCha
                       <input
                         ref={editValRef}
                         className="flex-1 bg-transparent text-xs text-foreground/90 px-2 py-1 rounded outline-none"
-                        style={{ background: 'oklch(0.22 0.016 264)', border: '1px solid oklch(0.35 0.1 260)' }}
+                        style={{ background: 'var(--input)', border: '1px solid var(--rf-blue-border)' }}
                         value={editVal}
                         onChange={e => setEditVal(e.target.value)}
                         onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') cancelEdit(); }}
@@ -579,7 +582,7 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate, onQuoteToCha
                         onClick={commitEdit}
                         disabled={!editKey.trim() || !editVal.trim()}
                         className="flex items-center gap-1 px-2.5 py-0.5 rounded text-[11px] font-medium transition-all disabled:opacity-30 hover:opacity-90"
-                        style={{ background: 'oklch(0.45 0.18 260)', color: 'white' }}
+                        style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
                       >
                         <Check className="w-3 h-3" /> 저장
                       </button>
@@ -628,7 +631,7 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate, onQuoteToCha
 
         {/* RAG weight */}
         <div className="rounded-lg p-3 text-xs space-y-1.5"
-          style={{ background: 'oklch(0.155 0.014 264)', border: '1px solid oklch(0.22 0.016 264)' }}>
+          style={{ background: 'var(--rf-card-bg)', border: '1px solid var(--rf-card-border)' }}>
           <p className="text-muted-foreground font-medium">RAG 검색 가중치</p>
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground/70">현재 상태</span>

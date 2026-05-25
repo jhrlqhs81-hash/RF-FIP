@@ -19,37 +19,37 @@ const EVIDENCE_CONFIG: Record<EvidenceItem['type'], {
   rule: {
     icon: <Cpu className="w-3 h-3" />,
     label: 'Rule Engine',
-    color: '#60A5FA',
-    bg: 'oklch(0.19 0.04 260)',
-    border: 'oklch(0.28 0.07 260)',
+    color: 'var(--rf-blue-fg)',
+    bg: 'var(--rf-blue-bg)',
+    border: 'var(--rf-blue-border)',
   },
   measurement: {
     icon: <Ruler className="w-3 h-3" />,
     label: '측정 데이터',
-    color: '#34D399',
-    bg: 'oklch(0.19 0.04 150)',
-    border: 'oklch(0.28 0.07 150)',
+    color: 'var(--rf-green-fg)',
+    bg: 'var(--rf-green-bg)',
+    border: 'var(--rf-green-border)',
   },
   observation: {
     icon: <Eye className="w-3 h-3" />,
     label: '엔지니어 관찰',
-    color: '#A78BFA',
-    bg: 'oklch(0.19 0.04 290)',
-    border: 'oklch(0.28 0.07 290)',
+    color: 'var(--rf-violet-fg)',
+    bg: 'var(--rf-violet-bg)',
+    border: 'var(--rf-violet-border)',
   },
   similar_case: {
     icon: <Database className="w-3 h-3" />,
     label: '유사 사례',
-    color: '#F59E0B',
-    bg: 'oklch(0.19 0.04 55)',
-    border: 'oklch(0.28 0.07 55)',
+    color: 'var(--rf-amber-fg)',
+    bg: 'var(--rf-amber-bg)',
+    border: 'var(--rf-amber-border)',
   },
   rejected: {
     icon: <XCircle className="w-3 h-3" />,
     label: '배제 근거',
-    color: '#F43F5E',
-    bg: 'oklch(0.19 0.04 25)',
-    border: 'oklch(0.28 0.07 25)',
+    color: 'var(--rf-red-fg)',
+    bg: 'var(--rf-red-bg)',
+    border: 'var(--rf-red-border)',
   },
 };
 
@@ -72,7 +72,7 @@ function EvidenceCard({ ev }: { ev: EvidenceItem }) {
       style={{ background: cfg.bg, border: `1px solid ${cfg.border}` }}
     >
       <button
-        className="w-full flex items-start gap-2 p-2.5 text-left hover:bg-white/5 transition-colors"
+        className="w-full flex items-start gap-2 p-2.5 text-left hover:bg-accent transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
         <span style={{ color: cfg.color }} className="flex-shrink-0 mt-0.5">{cfg.icon}</span>
@@ -94,7 +94,7 @@ function EvidenceCard({ ev }: { ev: EvidenceItem }) {
             transition={{ duration: 0.18 }}
             className="overflow-hidden"
           >
-            <div className="px-2.5 pb-2.5 space-y-1.5 border-t border-white/5 pt-2">
+            <div className="px-2.5 pb-2.5 space-y-1.5 border-t border-border/40 pt-2">
               <p className="text-[11px] text-foreground/75 leading-relaxed">{ev.detail}</p>
               {ev.source && (
                 <div className="flex items-center gap-1 text-[10px] text-muted-foreground/60">
@@ -125,17 +125,17 @@ function HypothesisDetailCard({ hyp, onQuoteToChat }: { hyp: Hypothesis; onQuote
     <motion.div
       layout
       className="rounded-xl overflow-hidden"
-      style={{ background: 'oklch(0.165 0.015 264)', border: `1px solid ${hyp.status === 'validated' ? 'oklch(0.3 0.08 150)' : 'oklch(0.24 0.016 264)'}` }}
+      style={{ background: 'var(--rf-card-bg)', border: `1px solid ${hyp.status === 'validated' ? 'var(--rf-green-border)' : 'var(--rf-card-border)'}` }}
     >
       {/* Header */}
       <button
-        className="w-full flex items-start gap-2.5 p-3 text-left hover:bg-white/5 transition-colors"
+        className="w-full flex items-start gap-2.5 p-3 text-left hover:bg-accent transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
         {/* Confidence ring */}
         <div className="flex-shrink-0 mt-0.5">
           <svg width="32" height="32" viewBox="0 0 32 32">
-            <circle cx="16" cy="16" r="12" fill="none" stroke="oklch(0.25 0.016 264)" strokeWidth="3" />
+            <circle cx="16" cy="16" r="12" fill="none" stroke="var(--border)" strokeWidth="3" />
             <circle
               cx="16" cy="16" r="12"
               fill="none"
@@ -190,7 +190,7 @@ function HypothesisDetailCard({ hyp, onQuoteToChat }: { hyp: Hypothesis; onQuote
                     ? <TrendingUp className="w-3 h-3 text-emerald-400 mt-0.5 flex-shrink-0" />
                     : <TrendingDown className="w-3 h-3 text-rose-400 mt-0.5 flex-shrink-0" />
                   }
-                  <span className={r.type === 'up' ? 'text-emerald-300/80' : 'text-rose-300/80'}>{r.text}</span>
+                  <span style={{ color: r.type === 'up' ? 'var(--rf-green-fg)' : 'var(--rf-red-fg)' }}>{r.text}</span>
                 </div>
               ))}
             </div>
@@ -204,7 +204,7 @@ function HypothesisDetailCard({ hyp, onQuoteToChat }: { hyp: Hypothesis; onQuote
                     `가설: ${hyp.title}`
                   )}
                   className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all hover:scale-[0.97]"
-                  style={{ background: 'oklch(0.22 0.04 260 / 0.5)', color: '#93C5FD', border: '1px solid oklch(0.32 0.06 260 / 0.5)' }}
+                  style={{ background: 'var(--rf-blue-bg)', color: 'var(--rf-blue-fg)', border: '1px solid var(--rf-blue-border)' }}
                 >
                   <Quote className="w-3 h-3" /> 가설 인용
                 </button>
@@ -218,7 +218,7 @@ function HypothesisDetailCard({ hyp, onQuoteToChat }: { hyp: Hypothesis; onQuote
                       );
                     }}
                     className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all hover:scale-[0.97]"
-                    style={{ background: 'oklch(0.22 0.06 55 / 0.5)', color: '#FCD34D', border: '1px solid oklch(0.32 0.1 55 / 0.5)' }}
+                    style={{ background: 'var(--rf-amber-bg)', color: 'var(--rf-amber-fg)', border: '1px solid var(--rf-amber-border)' }}
                   >
                     <MessageSquare className="w-3 h-3" /> 유사 사례 인용
                   </button>
@@ -236,7 +236,7 @@ function HypothesisDetailCard({ hyp, onQuoteToChat }: { hyp: Hypothesis; onQuote
                     console.log('Hypothesis validated:', hyp.id);
                   }}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:scale-[0.98] active:scale-[0.96]"
-                  style={{ background: 'oklch(0.3 0.08 150)', color: '#10B981', border: '1px solid oklch(0.4 0.1 150)' }}
+                  style={{ background: 'var(--rf-green-bg)', color: 'var(--rf-green-fg)', border: '1px solid var(--rf-green-border)' }}
                 >
                   <CheckCircle2 className="w-3.5 h-3.5" /> 검증 완료로 변경
                 </button>
@@ -291,16 +291,16 @@ function HypothesisDetailCard({ hyp, onQuoteToChat }: { hyp: Hypothesis; onQuote
                 {activeTab === 'mechanism' && (
                   <motion.div key="mech" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                     <div className="rounded-lg p-3 space-y-2"
-                      style={{ background: 'oklch(0.17 0.015 264)', border: '1px solid oklch(0.22 0.016 264)' }}>
+                      style={{ background: 'var(--panel-surface-2)', border: '1px solid var(--border)' }}>
                       <div className="flex items-center gap-1.5 mb-1">
                         <Zap className="w-3.5 h-3.5 text-amber-400" />
-                        <p className="text-[10px] font-semibold text-amber-300/80 uppercase tracking-wider">물리적 메커니즘</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--rf-amber-fg)' }}>물리적 메커니즘</p>
                       </div>
                       <p className="text-[11px] text-foreground/80 leading-relaxed">{hyp.mechanism}</p>
                     </div>
                     {hyp.rejectedReason && (
                       <div className="rounded-lg p-3 mt-2"
-                        style={{ background: 'oklch(0.18 0.04 25)', border: '1px solid oklch(0.27 0.07 25)' }}>
+                        style={{ background: 'var(--rf-red-bg)', border: '1px solid var(--rf-red-border)' }}>
                         <p className="text-[10px] font-semibold text-rose-300/80 mb-1">기각 사유</p>
                         <p className="text-[11px] text-foreground/70 leading-relaxed">{hyp.rejectedReason}</p>
                       </div>
@@ -318,7 +318,7 @@ function HypothesisDetailCard({ hyp, onQuoteToChat }: { hyp: Hypothesis; onQuote
                     ) : (
                       hyp.nextActions.map((action, i) => (
                         <div key={i} className="flex items-start gap-2 p-2 rounded-lg"
-                          style={{ background: 'oklch(0.18 0.03 260)', border: '1px solid oklch(0.26 0.05 260)' }}>
+                          style={{ background: 'var(--rf-blue-bg)', border: '1px solid var(--rf-blue-border)' }}>
                           <ArrowRight className="w-3 h-3 text-blue-400 flex-shrink-0 mt-0.5" />
                           <p className="text-[11px] text-foreground/80 leading-snug">{action}</p>
                         </div>

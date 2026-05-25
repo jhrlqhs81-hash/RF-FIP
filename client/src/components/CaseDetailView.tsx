@@ -52,7 +52,7 @@ function MaterialDetailModal({ item, onClose }: { item: ChatAttachment; onClose:
               {item.type.toUpperCase()}{item.mimeType ? ` · ${item.mimeType}` : ""}{item.size ? ` · ${Math.round(item.size / 1024)} KB` : ""}
             </p>
           </div>
-          <button onClick={onClose} className="rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-white/5 hover:text-foreground">
+          <button onClick={onClose} className="rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground">
             닫기
           </button>
         </div>
@@ -257,30 +257,39 @@ export function CaseDetailView({ data, editable = false }: { data: CaseDetailDat
         <DetailCard title="증상" icon={<FileText className="h-3.5 w-3.5 text-primary" />}>
           <p className="text-sm leading-relaxed text-foreground/80">{data.symptom}</p>
         </DetailCard>
-        <DetailCard title="증상 패턴" icon={<Activity className="h-3.5 w-3.5 text-blue-400" />}>
+        <DetailCard title="증상 패턴" icon={<Activity className="h-3.5 w-3.5" style={{ color: "var(--rf-blue-fg)" }} />}>
           <p className="text-sm leading-relaxed text-foreground/80">{data.symptomPattern}</p>
         </DetailCard>
       </div>
 
       <div className="grid gap-3 md:grid-cols-3">
-        <DetailCard title="원인 분류" icon={<Zap className="h-3.5 w-3.5 text-cyan-400" />}>
-          <p className="text-sm font-medium text-cyan-200">{data.desenseCategory}</p>
+        <DetailCard title="원인 분류" icon={<Zap className="h-3.5 w-3.5" style={{ color: "var(--rf-blue-fg)" }} />}>
+          <p
+            className="rounded-lg border px-3 py-2 text-sm font-medium"
+            style={{
+              background: "var(--rf-blue-bg)",
+              borderColor: "var(--rf-blue-border)",
+              color: "var(--rf-blue-fg)",
+            }}
+          >
+            {data.desenseCategory}
+          </p>
         </DetailCard>
-        <DetailCard title="Root Cause" icon={<Search className="h-3.5 w-3.5 text-amber-400" />}>
+        <DetailCard title="Root Cause" icon={<Search className="h-3.5 w-3.5" style={{ color: "var(--rf-amber-fg)" }} />}>
           <p className="text-sm leading-relaxed text-foreground/80">{data.rootCause}</p>
         </DetailCard>
-        <DetailCard title="인과 체인" icon={<ArrowRight className="h-3.5 w-3.5 text-violet-400" />}>
+        <DetailCard title="인과 체인" icon={<ArrowRight className="h-3.5 w-3.5" style={{ color: "var(--rf-violet-fg)" }} />}>
           <p className="text-sm leading-relaxed text-foreground/80">{data.causalChain}</p>
         </DetailCard>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
-        <DetailCard title="판별 시험" icon={<CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}>
+        <DetailCard title="판별 시험" icon={<CheckCircle2 className="h-3.5 w-3.5" style={{ color: "var(--rf-green-fg)" }} />}>
           <ul className="space-y-1.5">
             {data.diagnosticTests.map((item, i) => <li key={i} className="text-xs leading-relaxed text-foreground/75">• {item}</li>)}
           </ul>
         </DetailCard>
-        <DetailCard title="의심 구조" icon={<Table2 className="h-3.5 w-3.5 text-blue-400" />}>
+        <DetailCard title="의심 구조" icon={<Table2 className="h-3.5 w-3.5" style={{ color: "var(--rf-blue-fg)" }} />}>
           <div className="flex flex-wrap gap-1.5">
             {data.suspectedStructures.map((item, i) => <span key={i} className="sig-tag">{item}</span>)}
           </div>
@@ -288,12 +297,12 @@ export function CaseDetailView({ data, editable = false }: { data: CaseDetailDat
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
-        <DetailCard title="개선 조치" icon={<TrendingUp className="h-3.5 w-3.5 text-emerald-400" />}>
+        <DetailCard title="개선 조치" icon={<TrendingUp className="h-3.5 w-3.5" style={{ color: "var(--rf-green-fg)" }} />}>
           <ul className="space-y-1.5">
             {mitigation.map((item, i) => <li key={i} className="text-xs leading-relaxed text-foreground/75">• {item}</li>)}
           </ul>
         </DetailCard>
-        <DetailCard title="조치 가이드" icon={<Zap className="h-3.5 w-3.5 text-amber-400" />}>
+        <DetailCard title="조치 가이드" icon={<Zap className="h-3.5 w-3.5" style={{ color: "var(--rf-amber-fg)" }} />}>
           <p className="text-sm leading-relaxed text-foreground/80">{data.actionGuide}</p>
         </DetailCard>
       </div>
@@ -304,14 +313,14 @@ export function CaseDetailView({ data, editable = false }: { data: CaseDetailDat
             {lessons.map((item, i) => <li key={i} className="text-xs leading-relaxed text-foreground/75">• {item}</li>)}
           </ul>
         </DetailCard>
-        <DetailCard title="의사결정 근거" icon={<CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}>
+        <DetailCard title="의사결정 근거" icon={<CheckCircle2 className="h-3.5 w-3.5" style={{ color: "var(--rf-green-fg)" }} />}>
           <ul className="space-y-1.5">
             {data.decisionRationale.map((item, i) => <li key={i} className="text-xs leading-relaxed text-foreground/75">• {item}</li>)}
           </ul>
         </DetailCard>
       </div>
 
-      <DetailCard title="사용 자료" icon={<ImageIcon className="h-3.5 w-3.5 text-blue-400" />}>
+      <DetailCard title="사용 자료" icon={<ImageIcon className="h-3.5 w-3.5" style={{ color: "var(--rf-blue-fg)" }} />}>
         {materials.length ? (
           <div className="grid gap-2 md:grid-cols-2">
             {materials.map(item => <MaterialPreview key={item.id} item={item} onOpen={setSelectedMaterial} />)}
