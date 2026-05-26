@@ -79,6 +79,6 @@ Active
 ## 2026-05-26 Theme And Issue List Update
 
 - Added app-level light/dark theme switching and converted key UI surfaces to semantic tokens.
-- Added removable controls for left-panel issues that are `validated` or `confirmed`; this changes the Issue list only and preserves Knowledge DB records.
+- Added removable controls for left-panel issues that are `confirmed`; this changes the Issue list only and preserves Knowledge DB records.
 - Verification passed: whitespace diff check and Harness policy check.
 - TypeScript verification is pending because sandbox `EPERM` blocked local `tsc`, and escalation was rejected by the Codex usage-limit gate.

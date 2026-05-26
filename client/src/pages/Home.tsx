@@ -43,10 +43,8 @@ const STATUS_CONFIG: Record<IssueStatus, { label: string; color: string; badgeCl
   archived:   { label: '보관',   color: 'var(--muted-foreground)', badgeClass: 'badge-archived' },
 };
 const STATUS_STEPS: IssueStatus[] = ['new', 'hypothesis', 'validated', 'confirmed', 'archived'];
-const REMOVABLE_ISSUE_STATUSES = new Set<IssueStatus>(['validated', 'confirmed']);
-
 function canRemoveIssueFromList(issue: Issue): boolean {
-  return REMOVABLE_ISSUE_STATUSES.has(issue.status);
+  return issue.status === 'confirmed';
 }
 
 function toPersistableIssue(issue: Issue): Issue {
@@ -2003,7 +2001,7 @@ export default function Home() {
                       event.stopPropagation();
                       void handleRemoveIssueFromList(issue);
                     }}
-                    className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-destructive group-hover:opacity-100 focus:opacity-100"
+                    className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
                     aria-label={`${issue.id} 이슈 목록에서 삭제`}
                     title="이슈 목록에서 삭제"
                   >
