@@ -41,6 +41,8 @@ All RF-FIP APIs are server-owned under `/api`.
 - `POST /api/llm/signature-normalize`
 - `POST /api/llm/attachment-analysis`
 - Local shape: `{ provider: "local", task: string, result: object }`
+- OpenAI shape: `{ provider: "openai", task: string, result: object }`
+- OpenAI blocked shape until key exists: `{ error: string, provider: "openai", blocked: true, missing: ["OPENAI_API_KEY"] }`
 - Gauss blocked shape until API spec exists: `{ error: string, provider: "gauss", blocked: true, missing: string[] }`
 
 ## API Rules
@@ -48,4 +50,5 @@ All RF-FIP APIs are server-owned under `/api`.
 - Do not expose secrets to client responses.
 - Keep response shapes stable across storage backend changes.
 - Return clear 4xx JSON errors for invalid payloads.
+- OpenAI provider calls must stay server-owned and use the server environment key only. Prefer `OPENAI_API_KEY`; `open-ai-api-key` is accepted as a local `.env` compatibility alias.
 - Gauss provider calls must stay server-owned and return 501 blocked until the request/response schema is known.

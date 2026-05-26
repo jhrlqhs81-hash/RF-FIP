@@ -27,7 +27,7 @@ export type RfFipLlmTask =
   | "attachment-analysis";
 
 export interface RfFipLlmResponse {
-  provider: "local" | "gauss";
+  provider: "local" | "gauss" | "openai";
   task: RfFipLlmTask;
   result: Record<string, unknown>;
   blocked?: boolean;

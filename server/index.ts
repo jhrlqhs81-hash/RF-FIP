@@ -2,10 +2,13 @@ import express from "express";
 import { createServer } from "http";
 import path from "path";
 import { fileURLToPath } from "url";
+import { loadDotEnv } from "./env";
 import { handleRfFipApiRequest } from "./rfFipApi";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+loadDotEnv(path.resolve(__dirname, ".."));
 
 async function startServer() {
   const app = express();

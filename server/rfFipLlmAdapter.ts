@@ -1,4 +1,4 @@
-export type LlmProvider = "local" | "gauss";
+export type LlmProvider = "local" | "gauss" | "openai";
 
 export type LlmTask =
   | "chat-reply"
@@ -22,19 +22,41 @@ export interface LlmResponseDto {
   blocked?: boolean;
 }
 
-export class GaussBlockedError extends Error {
-  readonly status = 501;
+export class LlmProviderError extends Error {
+  readonly provider: LlmProvider;
+  readonly status: number;
+  readonly missing?: string[];
+  readonly blocked?: boolean;
+
+  constructor(provider: LlmProvider, status: number, message: string, options?: { missing?: string[]; blocked?: boolean }) {
+    super(message);
+    this.name = "LlmProviderError";
+    this.provider = provider;
+    this.status = status;
+    this.missing = options?.missing;
+    this.blocked = options?.blocked;
+  }
+}
+
+export class GaussBlockedError extends LlmProviderError {
   readonly missing: string[];
 
   constructor(missing: string[]) {
-    super(`Gauss adapter is blocked until required contract inputs are provided: ${missing.join(", ")}`);
+    super("gauss", 501, `Gauss adapter is blocked until required contract inputs are provided: ${missing.join(", ")}`, {
+      missing,
+      blocked: true,
+    });
     this.name = "GaussBlockedError";
     this.missing = missing;
   }
 }
 
 function provider(): LlmProvider {
-  return process.env.LLM_PROVIDER === "gauss" ? "gauss" : "local";
+  if (process.env.LLM_PROVIDER === "local") return "local";
+  if (process.env.LLM_PROVIDER === "gauss") return "gauss";
+  if (process.env.LLM_PROVIDER === "openai") return "openai";
+  if (openAiApiKey()) return "openai";
+  return "local";
 }
 
 function requiredGaussGaps(): string[] {
@@ -102,6 +124,208 @@ function classifyLocal(text: string, signatures: Array<{ key: string; value: str
   };
 }
 
+function openAiModel(): string {
+  return process.env.OPENAI_MODEL?.trim() || "gpt-4.1";
+}
+
+function openAiEndpoint(): string {
+  return process.env.OPENAI_API_URL?.trim() || "https://api.openai.com/v1/responses";
+}
+
+function openAiTimeoutMs(): number {
+  const parsed = Number(process.env.OPENAI_TIMEOUT_MS);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 30_000;
+}
+
+function openAiApiKey(): string | undefined {
+  return process.env.OPENAI_API_KEY || process.env["open-ai-api-key"];
+}
+
+function buildOpenAiInstructions(task: LlmTask): string {
+  return [
+    "You are an RF-FIP analysis assistant for RF desense, PIM, OTA, conducted, and signature triage.",
+    "Return concise Korean engineering language unless the input is English.",
+    "Always return JSON matching the requested task shape.",
+    `Current task: ${task}.`,
+    "Do not expose or infer secrets, credentials, or environment variables.",
+  ].join("\n");
+}
+
+function buildOpenAiInput(request: LlmRequestDto): string {
+  return JSON.stringify({
+    task: request.task,
+    text: request.text ?? "",
+    context: request.context ?? {},
+    signatures: request.signatures ?? [],
+    materials: request.materials ?? [],
+    expectedResultByTask: {
+      "chat-reply": {
+        content: "Actionable RF analysis response",
+        extractedTags: [{ key: "Band", value: "B3", isNew: true }],
+      },
+      "import-classify": {
+        status: "candidate | hold",
+        score: 0,
+        reasons: ["reason"],
+        signatures: [{ key: "Band", value: "B3", isNew: true }],
+      },
+      "rca-summary": {
+        draft: {
+          rootCause: "most likely root cause",
+          diagnosticTests: ["test"],
+          rationale: ["evidence"],
+        },
+      },
+      "signature-normalize": {
+        signatures: [{ key: "Band", value: "B3", isNew: false }],
+      },
+      "attachment-analysis": {
+        summary: "material analysis summary",
+        signatures: [{ key: "Band", value: "B3", isNew: true }],
+      },
+    }[request.task],
+  });
+}
+
+function openAiJsonSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: true,
+    properties: {
+      content: { type: "string" },
+      extractedTags: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            key: { type: "string" },
+            value: { type: "string" },
+            isNew: { type: "boolean" },
+          },
+          required: ["key", "value"],
+        },
+      },
+      status: { type: "string" },
+      score: { type: "number" },
+      reasons: { type: "array", items: { type: "string" } },
+      signatures: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            key: { type: "string" },
+            value: { type: "string" },
+            isNew: { type: "boolean" },
+          },
+          required: ["key", "value"],
+        },
+      },
+      draft: {
+        type: "object",
+        additionalProperties: true,
+        properties: {
+          rootCause: { type: "string" },
+          diagnosticTests: { type: "array", items: { type: "string" } },
+          rationale: { type: "array", items: { type: "string" } },
+        },
+      },
+      summary: { type: "string" },
+    },
+  };
+}
+
+function extractOpenAiText(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "";
+  const root = payload as { output_text?: unknown; output?: unknown };
+  if (typeof root.output_text === "string") return root.output_text;
+  if (!Array.isArray(root.output)) return "";
+
+  const textParts: string[] = [];
+  for (const item of root.output) {
+    if (!item || typeof item !== "object") continue;
+    const content = (item as { content?: unknown }).content;
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (!part || typeof part !== "object") continue;
+      const candidate = part as { text?: unknown; type?: unknown };
+      if (typeof candidate.text === "string" && (candidate.type === "output_text" || candidate.type === "text")) {
+        textParts.push(candidate.text);
+      }
+    }
+  }
+  return textParts.join("\n").trim();
+}
+
+function parseOpenAiResult(text: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : { content: text };
+  } catch {
+    return { content: text };
+  }
+}
+
+async function openAiResult(request: LlmRequestDto): Promise<Record<string, unknown>> {
+  const apiKey = openAiApiKey();
+  if (!apiKey) {
+    throw new LlmProviderError("openai", 501, "OpenAI adapter is blocked until OPENAI_API_KEY is configured.", {
+      missing: ["OPENAI_API_KEY"],
+      blocked: true,
+    });
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), openAiTimeoutMs());
+  try {
+    const response = await fetch(openAiEndpoint(), {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: openAiModel(),
+        instructions: buildOpenAiInstructions(request.task),
+        input: buildOpenAiInput(request),
+        store: false,
+        max_output_tokens: 1200,
+        text: {
+          format: {
+            type: "json_schema",
+            name: "rf_fip_llm_result",
+            strict: false,
+            schema: openAiJsonSchema(),
+          },
+        },
+      }),
+    });
+
+    const bodyText = await response.text();
+    if (!response.ok) {
+      const status = response.status === 429 ? 429 : 502;
+      throw new LlmProviderError("openai", status, `OpenAI request failed with status ${response.status}.`);
+    }
+
+    const responsePayload = JSON.parse(bodyText) as unknown;
+    const outputText = extractOpenAiText(responsePayload);
+    if (!outputText) {
+      throw new LlmProviderError("openai", 502, "OpenAI response did not include output text.");
+    }
+    return parseOpenAiResult(outputText);
+  } catch (error) {
+    if (error instanceof LlmProviderError) throw error;
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new LlmProviderError("openai", 504, "OpenAI request timed out.");
+    }
+    throw new LlmProviderError("openai", 502, "OpenAI request failed.");
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function localResult(request: LlmRequestDto): Record<string, unknown> {
   const text = request.text ?? "";
   const extracted = extractLocalSignatures(text);
@@ -158,6 +382,14 @@ export async function runRfFipLlm(request: LlmRequestDto): Promise<LlmResponseDt
   const activeProvider = provider();
   if (activeProvider === "gauss") {
     throw new GaussBlockedError(requiredGaussGaps());
+  }
+
+  if (activeProvider === "openai") {
+    return {
+      provider: "openai",
+      task: request.task,
+      result: await openAiResult(request),
+    };
   }
 
   return {

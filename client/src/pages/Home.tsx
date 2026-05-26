@@ -25,6 +25,7 @@ import {
   type ImportApprovalRecord,
   persistableAttachment,
   replaceIssues,
+  runRfFipLlm,
   saveImportApproval,
   saveIssue,
   saveKnowledgeCase,
@@ -54,6 +55,25 @@ function toPersistableIssue(issue: Issue): Issue {
       ...message,
       attachments: message.attachments?.map(persistableAttachment),
     })),
+  };
+}
+
+function normalizeLlmSignatures(value: unknown): SignatureTag[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap(item => {
+    if (!item || typeof item !== 'object') return [];
+    const record = item as { key?: unknown; value?: unknown; isNew?: unknown };
+    if (typeof record.key !== 'string' || typeof record.value !== 'string') return [];
+    return [{ key: record.key, value: record.value, isNew: record.isNew === true }];
+  });
+}
+
+function buildLlmChatAnalysis(result: Record<string, unknown>, fallback: { content: string; extractedTags: SignatureTag[] }) {
+  return {
+    content: typeof result.content === 'string' && result.content.trim() ? result.content : fallback.content,
+    extractedTags: normalizeLlmSignatures(result.extractedTags).length > 0
+      ? normalizeLlmSignatures(result.extractedTags)
+      : fallback.extractedTags,
   };
 }
 
@@ -1837,6 +1857,7 @@ export default function Home() {
   // ─── Chat handlers ─────────────────────────────────────────────
   const handleSend = () => {
     if (!selectedIssue) return;
+    const issueId = selectedIssue.id;
     const content = quotedText
       ? `> 인용 (${quotedText.source}): "${quotedText.text}"\n\n${inputValue}`
       : inputValue;
@@ -1869,19 +1890,48 @@ export default function Home() {
     setReplyingTo(null);
     setQuotedText(null);
     setIsAiTyping(true);
-    setTimeout(() => {
+    void (async () => {
+      let llmAnalysis = analysis;
+      try {
+        const response = await runRfFipLlm('chat-reply', {
+          text: content,
+          signatures: selectedIssue.signatures,
+          context: {
+            issueId,
+            title: selectedIssue.title,
+            model: selectedIssue.model,
+            band: selectedIssue.band,
+            quotedSource: quotedText?.source,
+          },
+          materials: pendingAttachments.map(att => ({
+            type: att.type,
+            name: att.name,
+            rows: att.rows,
+          })),
+        });
+        llmAnalysis = buildLlmChatAnalysis(response.result, analysis);
+      } catch (error) {
+        console.info('RF-FIP LLM API unavailable; using local deterministic analysis.', error);
+      }
+
       setIsAiTyping(false);
       const aiReply: Message = {
         id: `m-ai-${Date.now()}`,
         type: 'ai',
-        content: analysis.content,
-        extractedTags: analysis.extractedTags,
+        content: llmAnalysis.content,
+        extractedTags: llmAnalysis.extractedTags,
         timestamp: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
       };
       setIssues(prev => prev.map(iss =>
-        iss.id === selectedIssueId ? { ...iss, messages: [...iss.messages, aiReply] } : iss
+        iss.id === issueId
+          ? {
+              ...iss,
+              messages: [...iss.messages, aiReply],
+              signatures: mergeSignatures(iss.signatures, llmAnalysis.extractedTags),
+            }
+          : iss
       ));
-    }, 1800);
+    })();
   };
 
   const handleApprove = async () => {

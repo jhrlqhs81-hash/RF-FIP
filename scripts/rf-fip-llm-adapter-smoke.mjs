@@ -22,11 +22,13 @@ await build({
   logLevel: "silent",
 });
 
-const { runRfFipLlm, GaussBlockedError } = await import(`${pathToFileURL(bundlePath).href}?t=${Date.now()}`);
+const { runRfFipLlm, GaussBlockedError, LlmProviderError } = await import(`${pathToFileURL(bundlePath).href}?t=${Date.now()}`);
 
 process.env.LLM_PROVIDER = "local";
 delete process.env.GAUSS_API_URL;
 delete process.env.GAUSS_API_KEY;
+delete process.env.OPENAI_API_KEY;
+delete process.env["open-ai-api-key"];
 
 const payload = {
   task: "chat-reply",
@@ -67,4 +69,30 @@ assert(secretBlockedError instanceof GaussBlockedError, "Gauss provider with env
 assert(secretBlockedError.status === 501, "Gauss blocked-with-env status mismatch.");
 assert(!JSON.stringify(secretBlockedError).includes("SHOULD_NOT_LEAK_SECRET"), "Gauss blocked error leaked API key.");
 
-console.log("RF-FIP LLM adapter smoke passed: local deterministic response and gauss blocked contract.");
+process.env.LLM_PROVIDER = "openai";
+let openAiMissingKeyError;
+try {
+  await runRfFipLlm({ task: "chat-reply", text: "B7 display MIPI spur desense", signatures: [] });
+} catch (error) {
+  openAiMissingKeyError = error;
+}
+
+assert(openAiMissingKeyError instanceof LlmProviderError, "OpenAI provider without key did not throw LlmProviderError.");
+assert(openAiMissingKeyError.provider === "openai", "OpenAI missing-key provider mismatch.");
+assert(openAiMissingKeyError.status === 501, "OpenAI missing-key status mismatch.");
+assert(openAiMissingKeyError.missing.includes("OPENAI_API_KEY"), "OpenAI missing-key error did not include OPENAI_API_KEY.");
+
+process.env.OPENAI_API_KEY = "SHOULD_NOT_LEAK_OPENAI_SECRET";
+process.env.OPENAI_API_URL = "http://127.0.0.1:9/v1/responses";
+let openAiRequestError;
+try {
+  await runRfFipLlm({ task: "chat-reply", text: "B3 PIM desense", signatures: [] });
+} catch (error) {
+  openAiRequestError = error;
+}
+
+assert(openAiRequestError instanceof LlmProviderError, "OpenAI provider request failure did not throw LlmProviderError.");
+assert(openAiRequestError.provider === "openai", "OpenAI request-failure provider mismatch.");
+assert(!JSON.stringify(openAiRequestError).includes("SHOULD_NOT_LEAK_OPENAI_SECRET"), "OpenAI request error leaked API key.");
+
+console.log("RF-FIP LLM adapter smoke passed: local deterministic, gauss blocked, and openai contract checks.");

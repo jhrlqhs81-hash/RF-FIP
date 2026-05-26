@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
+import { loadDotEnv } from "./server/env";
 import { handleRfFipApiRequest } from "./server/rfFipApi";
 
 // =============================================================================
@@ -13,6 +14,7 @@ import { handleRfFipApiRequest } from "./server/rfFipApi";
 // =============================================================================
 
 const PROJECT_ROOT = import.meta.dirname;
+loadDotEnv(PROJECT_ROOT);
 const LOG_DIR = path.join(PROJECT_ROOT, ".manus-logs");
 const MAX_LOG_SIZE_BYTES = 1 * 1024 * 1024; // 1MB per log file
 const TRIM_TARGET_BYTES = Math.floor(MAX_LOG_SIZE_BYTES * 0.6); // Trim to 60% to avoid constant re-trimming

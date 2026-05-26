@@ -82,3 +82,13 @@ Active
 - Added removable controls for left-panel issues that are `confirmed`; this changes the Issue list only and preserves Knowledge DB records.
 - Verification passed: whitespace diff check and Harness policy check.
 - TypeScript verification is pending because sandbox `EPERM` blocked local `tsc`, and escalation was rejected by the Codex usage-limit gate.
+
+## 2026-05-26 OpenAI Adapter Trial
+
+- Added `LLM_PROVIDER=openai` as an offsite trial provider before internal Gauss integration.
+- The adapter uses server-only `OPENAI_API_KEY` and the OpenAI Responses API; client code still calls only `/api/llm/*`.
+- Chat replies now call the server LLM adapter first and fall back to deterministic local analysis if the API is unavailable.
+- `.env` loading was added for dev and production server startup without committing secrets.
+- Added `smoke:openai` for live OpenAI key/network verification without printing response content or secrets.
+- The local `.env` key name `open-ai-api-key` is accepted as a compatibility alias; `OPENAI_API_KEY` remains the preferred name.
+- Live OpenAI smoke reached the API but returned status `429`; treat this as an account quota/rate-limit issue, not a local key-loading issue.

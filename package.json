@@ -14,6 +14,7 @@
     "smoke:import-parser": "node scripts/rf-fip-import-parser-smoke.mjs",
     "smoke:sqlite": "node scripts/rf-fip-sqlite-smoke.mjs",
     "smoke:llm": "node scripts/rf-fip-llm-adapter-smoke.mjs",
+    "smoke:openai": "node scripts/rf-fip-openai-live-smoke.mjs",
     "format": "prettier --write ."
   },
   "dependencies": {

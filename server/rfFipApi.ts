@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { GaussBlockedError, runRfFipLlm, type LlmTask } from "./rfFipLlmAdapter";
+import { GaussBlockedError, LlmProviderError, runRfFipLlm, type LlmTask } from "./rfFipLlmAdapter";
 import {
   getRfFipDbSnapshot,
   getRfFipStorageInfo,
@@ -78,11 +78,11 @@ export async function handleRfFipApiRequest(req: IncomingMessage, res: ServerRes
       try {
         sendJson(res, 200, await runRfFipLlm({ ...(payload as object), task }));
       } catch (error) {
-        if (error instanceof GaussBlockedError) {
+        if (error instanceof LlmProviderError || error instanceof GaussBlockedError) {
           sendJson(res, error.status, {
             error: error.message,
-            provider: "gauss",
-            blocked: true,
+            provider: error.provider,
+            blocked: error.blocked === true,
             missing: error.missing,
           });
           return true;
