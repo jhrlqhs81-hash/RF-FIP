@@ -14,6 +14,7 @@
 - `/api/issues` POST/GET
 - `/api/knowledge-cases` POST/GET
 - `/api/signature-dictionary` PUT/GET
+- `/api/signature-weight-rules` PUT/GET
 - `/api/import-results` POST/GET
 
 Smoke checks must use `RF_FIP_DB_DIR=.rf-fip-db/smoke-*`.
@@ -24,6 +25,7 @@ Smoke checks must use `RF_FIP_DB_DIR=.rf-fip-db/smoke-*`.
 - Import original view opens from candidate detail.
 - Knowledge DB detail shows used materials.
 - Signature Dictionary filters Knowledge DB.
+- Signature tab can edit Signature weight rules and weighted similarity/missing checklist behavior remains stable.
 
 ## Harness Checks
 

@@ -27,6 +27,13 @@ All RF-FIP APIs are server-owned under `/api`.
 - `PUT /api/signature-dictionary`
 - Shape: `{ items: SignatureTag[] }`
 
+## Signature Weight Rules
+
+- `GET /api/signature-weight-rules`
+- `PUT /api/signature-weight-rules`
+- Shape: `{ items: SignatureWeightRule[] }`
+- Purpose: administrator-managed grouped weights for analysis, retrieval, and workflow use.
+
 ## Import Results
 
 - `GET /api/import-results`

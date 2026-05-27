@@ -1,5 +1,6 @@
 import type { ChatAttachment, Issue, SignatureTag } from "./mockData";
 import type { KnowledgeCase } from "./similarCasesDb";
+import type { SignatureWeightRule } from "./signatureWeights";
 
 export interface ImportApprovalRecord {
   id: string;
@@ -15,6 +16,7 @@ export interface RfFipDbSnapshot {
   issues: Issue[];
   knowledgeCases: KnowledgeCase[];
   signatureDictionary: SignatureTag[];
+  signatureWeightRules: SignatureWeightRule[];
   importResults: ImportApprovalRecord[];
   persistenceAvailable?: boolean;
 }
@@ -40,10 +42,23 @@ class PersistenceApiUnavailableError extends Error {
   }
 }
 
+export class RfFipApiError extends Error {
+  readonly status: number;
+  readonly payload: unknown;
+
+  constructor(path: string, status: number, payload: unknown, fallbackMessage: string) {
+    super(fallbackMessage || `Request failed: ${status} at ${path}`);
+    this.name = "RfFipApiError";
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
 const EMPTY_SNAPSHOT: RfFipDbSnapshot = {
   issues: [],
   knowledgeCases: [],
   signatureDictionary: [],
+  signatureWeightRules: [],
   importResults: [],
   persistenceAvailable: false,
 };
@@ -63,7 +78,17 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     throw new PersistenceApiUnavailableError(path);
   }
   if (!response.ok) {
-    throw new Error(bodyText || `Request failed: ${response.status} at ${path}`);
+    let payload: unknown = bodyText;
+    let message = bodyText || `Request failed: ${response.status} at ${path}`;
+    try {
+      payload = JSON.parse(bodyText);
+      if (payload && typeof payload === "object" && typeof (payload as { error?: unknown }).error === "string") {
+        message = (payload as { error: string }).error;
+      }
+    } catch {
+      /* keep text body */
+    }
+    throw new RfFipApiError(path, response.status, payload, message);
   }
   return JSON.parse(bodyText) as T;
 }
@@ -71,14 +96,15 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 export async function loadRfFipDb(): Promise<RfFipDbSnapshot> {
   try {
     await requestJson<{ ok: true }>("/api/health");
-    const [issues, knowledgeCases, signatureDictionary, importResults] = await Promise.all([
+    const [issues, knowledgeCases, signatureDictionary, signatureWeightRules, importResults] = await Promise.all([
       requestJson<{ items: Issue[] }>("/api/issues").then((payload) => payload.items),
       requestJson<{ items: KnowledgeCase[] }>("/api/knowledge-cases").then((payload) => payload.items),
       requestJson<{ items: SignatureTag[] }>("/api/signature-dictionary").then((payload) => payload.items),
+      requestJson<{ items: SignatureWeightRule[] }>("/api/signature-weight-rules").then((payload) => payload.items),
       requestJson<{ items: ImportApprovalRecord[] }>("/api/import-results").then((payload) => payload.items),
     ]);
 
-    return { issues, knowledgeCases, signatureDictionary, importResults, persistenceAvailable: true };
+    return { issues, knowledgeCases, signatureDictionary, signatureWeightRules, importResults, persistenceAvailable: true };
   } catch (error) {
     if (error instanceof PersistenceApiUnavailableError || error instanceof TypeError) {
       console.info("RF-FIP persistence API is unavailable; using bundled mock data for this session.");
@@ -122,6 +148,14 @@ export async function saveKnowledgeCase(item: KnowledgeCase): Promise<KnowledgeC
 
 export async function saveSignatureDictionary(items: SignatureTag[]): Promise<SignatureTag[]> {
   const payload = await requestJson<{ items: SignatureTag[] }>("/api/signature-dictionary", {
+    method: "PUT",
+    body: JSON.stringify({ items }),
+  });
+  return payload.items;
+}
+
+export async function saveSignatureWeightRules(items: SignatureWeightRule[]): Promise<SignatureWeightRule[]> {
+  const payload = await requestJson<{ items: SignatureWeightRule[] }>("/api/signature-weight-rules", {
     method: "PUT",
     body: JSON.stringify({ items }),
   });

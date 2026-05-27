@@ -16,6 +16,14 @@ export interface SignatureTag {
   isNew?: boolean;
 }
 
+export interface PendingAliasCandidate {
+  raw: string;
+  canonicalKey: string;
+  canonicalValue: string;
+  score: number;
+  matchedAlias: string;
+}
+
 export interface ChatAttachment {
   id: string;
   type: 'image' | 'table' | 'url' | 'file';
@@ -24,6 +32,7 @@ export interface ChatAttachment {
   mimeType?: string;
   size?: number;
   rows?: string[][];
+  evidence?: string[];
 }
 
 export type SummaryItem = string | {
@@ -41,6 +50,8 @@ export interface EvidenceItem {
   weight: 'high' | 'medium' | 'low';
 }
 
+export type AnalysisSource = 'local-rule' | 'llm' | 'mock' | 'user-approved' | 'fallback';
+
 export interface Hypothesis {
   id: string;
   title: string;
@@ -51,6 +62,7 @@ export interface Hypothesis {
   nextActions: string[];     // 권장 다음 조치
   status: 'active' | 'validated' | 'rejected';
   rejectedReason?: string;
+  source?: AnalysisSource;
 }
 
 export interface ChatSummary {
@@ -59,6 +71,7 @@ export interface ChatSummary {
   pendingQuestions: SummaryItem[];  // 미해결 질문
   nextSteps: SummaryItem[];         // 다음 분석 단계
   lastUpdated: string;
+  source?: AnalysisSource;
 }
 
 export interface Message {
@@ -68,6 +81,10 @@ export interface Message {
   content: string;
   timestamp: string;
   extractedTags?: SignatureTag[];
+  pendingAliasCandidates?: PendingAliasCandidate[];
+  provider?: 'local' | 'gauss' | 'openai';
+  source?: AnalysisSource;
+  fallbackReason?: string;
   attachments?: ChatAttachment[];
   hypotheses?: Hypothesis[];
   isTyping?: boolean;

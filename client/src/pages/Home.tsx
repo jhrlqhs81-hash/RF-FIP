@@ -5,14 +5,22 @@ import {
   TrendingUp, TrendingDown, Check, X, ChevronDown, Plus,
   Database, FileText, Sparkles, Tag, Info,
   Activity, Quote, ExternalLink, Image as ImageIcon, Table2, Search, Upload, ClipboardCheck, AlertTriangle, Loader2,
-  Moon, Sun, Trash2
+  Moon, Sun, Trash2, SlidersHorizontal
 } from "lucide-react";
-import { MOCK_ISSUES, USERS, Issue, Message, SignatureTag, IssueStatus, ChatAttachment } from "@/lib/mockData";
-import { KNOWLEDGE_DB, KnowledgeCase } from "@/lib/similarCasesDb";
+import { MOCK_ISSUES, USERS, Issue, Message, SignatureTag, IssueStatus, ChatAttachment, type AnalysisSource, type SummaryItem } from "@/lib/mockData";
+import { KNOWLEDGE_DB, KnowledgeCase, findSimilarCases } from "@/lib/similarCasesDb";
 import { classifyDesenseCase } from "@/lib/rfDesenseTaxonomy";
-import { extractRfSignatures, generateLocalRfReply, mergeSignatures } from "@/lib/localRfAnalyzer";
+import { buildAttachmentEvidence, buildLocalEvidencePacket, extractRfSignatures, generateLocalRfReply, mergeSignatures, type LocalEvidencePacket } from "@/lib/localRfAnalyzer";
+import { buildLocalHybridHypotheses } from "@/lib/hybridHypothesis";
+import { buildLocalHybridSummary } from "@/lib/hybridSummary";
+import { canonicalizeSignatures, canonicalizeSignatureTag, normalizeAliasToken } from "@/lib/signatureAliasResolver";
+import {
+  mergeSignatureWeightRules,
+  weightedSignatureContext,
+  type SignatureWeightRule,
+} from "@/lib/signatureWeights";
 import { readImportFile, type ParsedImportSource } from "@/lib/importParser";
-import { SignaturePanel, SimilarCasesPanel } from "@/components/SignaturePanel";
+import { SignaturePanel, SignatureWeightSettings, SimilarCasesPanel } from "@/components/SignaturePanel";
 import { HypothesisDetailPanel } from "@/components/HypothesisDetailPanel";
 import { ChatSummaryPanel } from "@/components/ChatSummaryPanel";
 import { RcaSummaryModal } from "@/components/RcaSummaryModal";
@@ -25,11 +33,13 @@ import {
   type ImportApprovalRecord,
   persistableAttachment,
   replaceIssues,
+  RfFipApiError,
   runRfFipLlm,
   saveImportApproval,
   saveIssue,
   saveKnowledgeCase,
   saveSignatureDictionary,
+  saveSignatureWeightRules,
 } from "@/lib/rfFipApi";
 
 // ─── Theme ────────────────────────────────────────────────────────
@@ -60,12 +70,25 @@ function toPersistableIssue(issue: Issue): Issue {
 
 function normalizeLlmSignatures(value: unknown): SignatureTag[] {
   if (!Array.isArray(value)) return [];
-  return value.flatMap(item => {
+  return canonicalizeSignatures(value.flatMap(item => {
     if (!item || typeof item !== 'object') return [];
     const record = item as { key?: unknown; value?: unknown; isNew?: unknown };
     if (typeof record.key !== 'string' || typeof record.value !== 'string') return [];
     return [{ key: record.key, value: record.value, isNew: record.isNew === true }];
-  });
+  }));
+}
+
+function isRfAnalysisIntent(text: string, attachments: ChatAttachment[]): boolean {
+  if (attachments.length > 0) return true;
+  return /rf|rx|tx|ota|tis|eis|desense|sensitivity|antenna|band|pim|im3|im5|spur|harmonic|conducted|chamber|shield|clip|noise|dBm|dB|감도|안테나|가설|요약|분석|측정|주파수|대역|노이즈|실드|판별|시험/i.test(text);
+}
+
+function sourceLabel(source?: AnalysisSource): string {
+  if (source === 'llm') return 'LLM';
+  if (source === 'local-rule') return 'Local rule';
+  if (source === 'fallback') return 'Fallback';
+  if (source === 'user-approved') return 'User approved';
+  return 'Mock/state';
 }
 
 function buildLlmChatAnalysis(result: Record<string, unknown>, fallback: { content: string; extractedTags: SignatureTag[] }) {
@@ -74,7 +97,175 @@ function buildLlmChatAnalysis(result: Record<string, unknown>, fallback: { conte
     extractedTags: normalizeLlmSignatures(result.extractedTags).length > 0
       ? normalizeLlmSignatures(result.extractedTags)
       : fallback.extractedTags,
+    source: 'llm' as AnalysisSource,
   };
+}
+
+function buildLlmFallbackNotice(error: unknown, localContent?: string): string {
+  const suffix = localContent ? ["", localContent] : [];
+  if (error instanceof RfFipApiError && error.status === 429) {
+    return [
+      "OpenAI API가 429(rate limit 또는 quota 제한)를 반환했습니다.",
+      localContent ? "현재 답변은 임시 local 분석 결과입니다." : "일반 질문은 local RF 분석으로 대체하지 않았습니다.",
+      ...suffix,
+    ].join("\n");
+  }
+  if (error instanceof RfFipApiError) {
+    return [
+      `LLM API 호출이 실패했습니다. status=${error.status}`,
+      localContent ? "현재 답변은 임시 local 분석 결과입니다." : "일반 질문은 local RF 분석으로 대체하지 않았습니다.",
+      ...suffix,
+    ].join("\n");
+  }
+  return localContent ?? "LLM API 호출이 실패했습니다. 일반 질문은 local RF 분석으로 대체하지 않았습니다.";
+}
+
+function summaryItemPlainText(item: SummaryItem): string {
+  if (typeof item === 'string') return item;
+  return [
+    item.text,
+    item.rationale ? `rationale=${item.rationale}` : '',
+    item.evidence?.length ? `evidence=${item.evidence.join(' / ')}` : '',
+    item.messageId ? `messageId=${item.messageId}` : '',
+  ].filter(Boolean).join(' | ');
+}
+
+function buildSharedAnalysisContext(issue: Issue, signatureWeightRules: SignatureWeightRule[]) {
+  const similarCases = findSimilarCases(issue.signatures, 15, 4, signatureWeightRules);
+  const weightedSignatures = weightedSignatureContext(issue.signatures, signatureWeightRules);
+  return {
+    issue: {
+      id: issue.id,
+      title: issue.title,
+      model: issue.model,
+      band: issue.band,
+      status: issue.status,
+    },
+    signatures: issue.signatures.map(tag => ({
+      key: tag.key,
+      value: tag.value,
+      source: tag.isNew ? 'extracted-or-new' : 'existing',
+    })),
+    weightedSignatureContext: weightedSignatures,
+    topWeightedSignals: weightedSignatures.slice(0, 8),
+    hypotheses: issue.hypotheses.map(hypothesis => ({
+      id: hypothesis.id,
+      title: hypothesis.title,
+      confidence: hypothesis.confidence,
+      status: hypothesis.status,
+      source: hypothesis.source,
+      mechanism: hypothesis.mechanism,
+      reasons: hypothesis.reasons,
+      evidence: hypothesis.evidence.map(item => ({
+        type: item.type,
+        label: item.label,
+        detail: item.detail,
+        source: item.source,
+        weight: item.weight,
+      })),
+      nextActions: hypothesis.nextActions,
+    })),
+    summary: issue.chatSummary ? {
+      source: issue.chatSummary.source,
+      lastUpdated: issue.chatSummary.lastUpdated,
+      keyFindings: issue.chatSummary.keyFindings.map(summaryItemPlainText),
+      confirmedFacts: issue.chatSummary.confirmedFacts.map(summaryItemPlainText),
+      pendingQuestions: issue.chatSummary.pendingQuestions.map(summaryItemPlainText),
+      nextSteps: issue.chatSummary.nextSteps.map(summaryItemPlainText),
+    } : undefined,
+    similarCases: similarCases.map(item => ({
+      id: item.id,
+      title: item.title,
+      similarity: item.similarity,
+      rootCause: item.confirmedRootCause,
+      mitigation: item.mitigation,
+      signatures: item.signatures,
+    })),
+    recentMessages: issue.messages.slice(-8).map(message => ({
+      id: message.id,
+      type: message.type,
+      source: message.source,
+      provider: message.provider,
+      content: message.content.slice(0, 800),
+      extractedTags: message.extractedTags,
+      pendingAliasCandidates: message.pendingAliasCandidates,
+      attachments: message.attachments?.map(attachment => ({
+        type: attachment.type,
+        name: attachment.name,
+        evidence: attachment.evidence,
+        rows: attachment.rows?.slice(0, 4),
+      })),
+    })),
+  };
+}
+
+type IssueEvent =
+  | { id: string; kind: 'message'; title: string; detail: string; time: string; messageId: string; source?: AnalysisSource; provider?: Message['provider']; fallbackReason?: string }
+  | { id: string; kind: 'panel'; title: string; detail: string; time: string; panel: 'hypotheses' | 'signatures' | 'similar' | 'summary'; source?: AnalysisSource };
+
+function buildIssueEvents(issue: Issue): IssueEvent[] {
+  const events: IssueEvent[] = [
+    {
+      id: `${issue.id}-created`,
+      kind: 'message',
+      title: '이슈 생성',
+      detail: `${issue.title} · ${issue.model} · ${issue.band}`,
+      time: issue.createdAt,
+      messageId: issue.messages[0]?.id ?? '',
+      source: 'user-approved',
+    },
+  ];
+
+  for (const msg of issue.messages) {
+    events.push({
+      id: msg.id,
+      kind: 'message',
+      title: msg.type === 'ai' ? 'AI 답변' : msg.type === 'user' ? '사용자 입력' : '시스템 메시지',
+      detail: msg.content,
+      time: msg.timestamp,
+      messageId: msg.id,
+      source: msg.source,
+      provider: msg.provider,
+      fallbackReason: msg.fallbackReason,
+    });
+    if (msg.extractedTags?.length) {
+      events.push({
+        id: `${msg.id}-sig`,
+        kind: 'panel',
+        title: 'Signature 추출',
+        detail: msg.extractedTags.map(tag => `${tag.key}=${tag.value}`).join(', '),
+        time: msg.timestamp,
+        panel: 'signatures',
+        source: msg.source ?? 'local-rule',
+      });
+    }
+  }
+
+  for (const hyp of issue.hypotheses) {
+    events.push({
+      id: `${hyp.id}-hyp`,
+      kind: 'panel',
+      title: `가설 ${hyp.status === 'validated' ? '검증 완료' : hyp.status === 'rejected' ? '기각' : '생성'}`,
+      detail: `${hyp.title} · confidence ${hyp.confidence}%`,
+      time: issue.chatSummary?.lastUpdated ?? issue.createdAt,
+      panel: 'hypotheses',
+      source: hyp.source ?? 'mock',
+    });
+  }
+
+  if (issue.chatSummary) {
+    events.push({
+      id: `${issue.id}-summary`,
+      kind: 'panel',
+      title: '요약 갱신',
+      detail: `다음 단계 ${issue.chatSummary.nextSteps.length}개 · 미해결 질문 ${issue.chatSummary.pendingQuestions.length}개`,
+      time: issue.chatSummary.lastUpdated,
+      panel: 'summary',
+      source: issue.chatSummary.source ?? 'mock',
+    });
+  }
+
+  return events.slice(-12).reverse();
 }
 
 function StatusBadge({ status }: { status: IssueStatus }) {
@@ -186,19 +377,48 @@ function MediaBlock({ type, src, alt, rows }: {
 }
 
 function AttachmentBlock({ attachment }: { attachment: ChatAttachment }) {
+  const evidence = attachment.evidence ?? [];
   if (attachment.type === 'image') {
-    return <MediaBlock type="image" src={attachment.url} alt={attachment.name} />;
+    return (
+      <div>
+        <MediaBlock type="image" src={attachment.url} alt={attachment.name} />
+        {evidence.length > 0 && <AttachmentEvidenceList evidence={evidence} />}
+      </div>
+    );
   }
   if (attachment.type === 'table') {
-    return <MediaBlock type="table" rows={attachment.rows} />;
+    return (
+      <div>
+        <MediaBlock type="table" rows={attachment.rows} />
+        {evidence.length > 0 && <AttachmentEvidenceList evidence={evidence} />}
+      </div>
+    );
   }
   if (attachment.type === 'url') {
-    return <MediaBlock type="url" src={attachment.url} alt={attachment.name} />;
+    return (
+      <div>
+        <MediaBlock type="url" src={attachment.url} alt={attachment.name} />
+        {evidence.length > 0 && <AttachmentEvidenceList evidence={evidence} />}
+      </div>
+    );
   }
   return (
     <div className="mt-2 rounded-lg border border-border/60 px-3 py-2 text-xs text-foreground/75">
       <Paperclip className="mr-1 inline h-3 w-3" />
       {attachment.name}
+      {evidence.length > 0 && <AttachmentEvidenceList evidence={evidence} />}
+    </div>
+  );
+}
+
+function AttachmentEvidenceList({ evidence }: { evidence: string[] }) {
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1">
+      {evidence.map((item, index) => (
+        <span key={index} className="rounded-full border border-border/50 px-1.5 py-0.5 text-[9px] text-muted-foreground">
+          {item}
+        </span>
+      ))}
     </div>
   );
 }
@@ -542,11 +762,22 @@ interface ImportCandidate {
   score: number;
   reasons: string[];
   evidenceSnippets: string[];
+  importFacts: string[];
+  statusDecision: ImportStatusDecision;
+  localEvidencePacket?: LocalEvidencePacket;
   previewText: string;
   rawText: string;
   caseData: KnowledgeCase;
   materials: ChatAttachment[];
   duplicateMatch?: ImportDuplicateMatch;
+}
+
+interface ImportStatusDecision {
+  status: 'candidate' | 'hold';
+  score: number;
+  ruleIds: string[];
+  explanation: string;
+  facts: string[];
 }
 
 interface ImportDuplicateMatch {
@@ -569,7 +800,8 @@ function normalizeCaseKey(item: Pick<KnowledgeCase, 'title' | 'band' | 'confirme
 }
 
 function signatureKey(signature: SignatureTag): string {
-  return `${signature.key}:${signature.value}`.toLowerCase().replace(/\s+/g, ' ').trim();
+  const canonical = canonicalizeSignatureTag(signature);
+  return `${normalizeAliasToken(canonical.key)}:${normalizeAliasToken(canonical.value)}`;
 }
 
 function signatureSimilarity(a: SignatureTag[], b: SignatureTag[]): number {
@@ -682,7 +914,48 @@ function parseDelimitedRows(text: string, delimiter?: string): string[][] {
   return lines.map(line => line.split(inferredDelimiter).map(cell => cell.trim())).filter(row => row.length > 1);
 }
 
-function buildImportCandidate(file: File, rawText: string): ImportCandidate {
+function attachEvidenceTrace(material: ChatAttachment): ChatAttachment {
+  const evidence = buildAttachmentEvidence([material]).map(item => `${item.id}: ${item.detail}`);
+  return evidence.length ? { ...material, evidence } : material;
+}
+
+function buildImportStatusDecision(input: {
+  text: string;
+  signatures: SignatureTag[];
+  hasRfSignal: boolean;
+  insightCategory: string;
+  evidencePacket: LocalEvidencePacket;
+}): ImportStatusDecision {
+  const status: ImportStatusDecision['status'] = input.text && (input.hasRfSignal || input.signatures.length >= 2) ? 'candidate' : 'hold';
+  const score = status === 'candidate'
+    ? Math.min(94, 42 + input.signatures.length * 6 + (input.hasRfSignal ? 18 : 0))
+    : Math.min(35, 10 + input.signatures.length * 4);
+  const facts = [
+    `${input.signatures.length} extracted signature(s)`,
+    `classification=${input.insightCategory}`,
+    ...input.evidencePacket.evidence
+      .filter(item => item.type === 'attachment' || item.type === 'classification')
+      .slice(0, 4)
+      .map(item => `${item.id}: ${item.detail}`),
+    ...(input.evidencePacket.pendingAliasCandidates ?? [])
+      .slice(0, 3)
+      .map(item => `pending alias: ${item.raw} -> ${item.canonicalKey}:${item.canonicalValue} (${item.score})`),
+  ];
+  return {
+    status,
+    score,
+    ruleIds: [
+      input.hasRfSignal ? 'rf-keyword-present' : 'rf-keyword-missing',
+      input.signatures.length >= 2 ? 'signature-count-pass' : 'signature-count-low',
+    ],
+    explanation: status === 'candidate'
+      ? 'Deterministic local rules found enough RF signal for reviewer approval flow.'
+      : 'Deterministic local rules did not find enough RF signal for automatic approval.',
+    facts,
+  };
+}
+
+function buildImportCandidate(file: File, rawText: string, signatureWeightRules: SignatureWeightRule[] = []): ImportCandidate {
   const text = rawText.trim();
   const signatures = extractRfSignatures(text);
   const insight = classifyDesenseCase(signatures, text);
@@ -711,6 +984,15 @@ function buildImportCandidate(file: File, rawText: string): ImportCandidate {
   const material: ChatAttachment = rows.length >= 2
     ? { id: makeImportId('import-material'), type: 'table', name: file.name, mimeType: file.type, size: file.size, rows }
     : { id: makeImportId('import-material'), type: file.type.startsWith('image/') ? 'image' : 'file', name: file.name, mimeType: file.type, size: file.size, url: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined };
+  const tracedMaterial = attachEvidenceTrace(material);
+  const localEvidencePacket = buildLocalEvidencePacket({ text, existingSignatures: [], attachments: [tracedMaterial], signatureWeightRules });
+  const statusDecision = buildImportStatusDecision({
+    text,
+    signatures,
+    hasRfSignal,
+    insightCategory: insight.category,
+    evidencePacket: localEvidencePacket,
+  });
 
   return {
     id: makeImportId('import'),
@@ -719,9 +1001,12 @@ function buildImportCandidate(file: File, rawText: string): ImportCandidate {
     score,
     reasons,
     evidenceSnippets,
+    importFacts: statusDecision.facts,
+    statusDecision,
+    localEvidencePacket,
     previewText: text.slice(0, 900),
     rawText: text,
-    materials: [material],
+    materials: [tracedMaterial],
     caseData: {
       id: `KB-LOCAL-${new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14)}`,
       title: firstLine ? firstLine.slice(0, 90) : `${file.name} Import 후보`,
@@ -735,8 +1020,37 @@ function buildImportCandidate(file: File, rawText: string): ImportCandidate {
       suspectedStructures: insight.suspectedStructures,
       lessonsLearned: insight.lessonsLearned,
       decisionRationale: [...reasons, ...evidenceSnippets.map(snippet => `원문 근거: ${snippet}`)],
-      usedMaterials: [persistableAttachment(material)],
+      usedMaterials: [persistableAttachment(tracedMaterial)],
       signatures,
+    },
+  };
+}
+
+function refreshImportEvidence(candidate: ImportCandidate, text: string, materials: ChatAttachment[], signatureWeightRules: SignatureWeightRule[] = []): ImportCandidate {
+  const tracedMaterials = materials.map(attachEvidenceTrace);
+  const packet = buildLocalEvidencePacket({ text, existingSignatures: [], attachments: tracedMaterials, signatureWeightRules });
+  const decision = buildImportStatusDecision({
+    text,
+    signatures: candidate.caseData.signatures,
+    hasRfSignal: candidate.status === 'candidate',
+    insightCategory: classifyDesenseCase(candidate.caseData.signatures, text).category,
+    evidencePacket: packet,
+  });
+  const statusDecision = { ...decision, status: candidate.status, score: candidate.score };
+  return {
+    ...candidate,
+    importFacts: statusDecision.facts,
+    statusDecision,
+    localEvidencePacket: packet,
+    materials: tracedMaterials,
+    caseData: {
+      ...candidate.caseData,
+      usedMaterials: tracedMaterials.map(persistableAttachment),
+      decisionRationale: [
+        ...candidate.reasons,
+        ...candidate.evidenceSnippets.map(snippet => `원문 근거: ${snippet}`),
+        ...statusDecision.facts.map(fact => `Local fact: ${fact}`),
+      ],
     },
   };
 }
@@ -866,45 +1180,41 @@ function extractRawCasesFromFile(file: File, rawText: string): RawImportCase[] {
   return [{ title: file.name, text, materials: [sourceMaterial] }];
 }
 
-function buildImportCandidatesFromFile(file: File, rawText: string, offset = 0): ImportCandidate[] {
+function buildImportCandidatesFromFile(file: File, rawText: string, offset = 0, signatureWeightRules: SignatureWeightRule[] = []): ImportCandidate[] {
   return extractRawCasesFromFile(file, rawText).map((rawCase, index) => {
     const sequence = offset + index;
-    const base = buildImportCandidate(file, rawCase.text);
-    return {
+    const base = buildImportCandidate(file, rawCase.text, signatureWeightRules);
+    return refreshImportEvidence({
       ...base,
       id: makeImportId('import', sequence),
       fileName: `${file.name} #${index + 1}`,
       previewText: rawCase.text.slice(0, 900),
       rawText: rawCase.text,
-      materials: rawCase.materials,
       caseData: {
         ...base.caseData,
         id: `KB-LOCAL-${new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14)}-${String(sequence + 1).padStart(2, '0')}`,
         title: (rawCase.title || base.caseData.title).slice(0, 90),
-        usedMaterials: rawCase.materials.map(persistableAttachment),
       },
-    };
+    }, rawCase.text, rawCase.materials, signatureWeightRules);
   });
 }
 
-function buildImportCandidatesFromSources(file: File, sources: ParsedImportSource[], offset = 0): ImportCandidate[] {
+function buildImportCandidatesFromSources(file: File, sources: ParsedImportSource[], offset = 0, signatureWeightRules: SignatureWeightRule[] = []): ImportCandidate[] {
   return sources.map((source, index) => {
     const sequence = offset + index;
-    const base = buildImportCandidate(file, source.text);
-    return {
+    const base = buildImportCandidate(file, source.text, signatureWeightRules);
+    return refreshImportEvidence({
       ...base,
       id: makeImportId('import', sequence),
       fileName: `${file.name} #${index + 1}`,
       previewText: source.text.slice(0, 900),
       rawText: source.text,
-      materials: source.materials,
       caseData: {
         ...base.caseData,
         id: `KB-LOCAL-${new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14)}-${String(sequence + 1).padStart(2, '0')}`,
         title: (source.title || base.caseData.title).slice(0, 90),
-        usedMaterials: source.materials.map(persistableAttachment),
       },
-    };
+    }, source.text, source.materials, signatureWeightRules);
   });
 }
 
@@ -1170,6 +1480,8 @@ function KnowledgeDbWorkspace({
   signatureFilter,
   knowledgeCases,
   customSignatures,
+  signatureWeightRules,
+  onChangeSignatureWeightRules,
   onChangeCustomSignatures,
   onFilterKnowledge,
   onAddCase,
@@ -1179,6 +1491,8 @@ function KnowledgeDbWorkspace({
   signatureFilter?: { key: string; value?: string } | null;
   knowledgeCases: KnowledgeCase[];
   customSignatures: SignatureTag[];
+  signatureWeightRules: SignatureWeightRule[];
+  onChangeSignatureWeightRules: (items: SignatureWeightRule[]) => void;
   onChangeCustomSignatures: (items: SignatureTag[]) => void;
   onFilterKnowledge: (filter: { key: string; value?: string } | null) => void;
   onAddCase: (item: KnowledgeCase) => Promise<void>;
@@ -1242,7 +1556,7 @@ function KnowledgeDbWorkspace({
     try {
       const candidateGroups = await Promise.all(selectedFiles.map(async (file, fileIndex) => {
         const sources = await readImportFile(file);
-        return buildImportCandidatesFromSources(file, sources, fileIndex * 100);
+        return buildImportCandidatesFromSources(file, sources, fileIndex * 100, signatureWeightRules);
       }));
       const nextCandidates = candidateGroups.flat().map(candidate => ({
         ...candidate,
@@ -1266,6 +1580,13 @@ function KnowledgeDbWorkspace({
       status: 'candidate',
       score: Math.max(candidate.score, 55),
       reasons: [...candidate.reasons, 'Reviewer promoted this held candidate for Knowledge DB approval.'],
+      statusDecision: {
+        ...candidate.statusDecision,
+        status: 'candidate',
+        score: Math.max(candidate.score, 55),
+        ruleIds: [...candidate.statusDecision.ruleIds, 'reviewer-promoted'],
+        explanation: 'Reviewer promoted this held candidate after manual review.',
+      },
     } : candidate));
     setCheckedImportCandidateIds(prev => prev.includes(id) ? prev : [...prev, id]);
   };
@@ -1322,6 +1643,8 @@ function KnowledgeDbWorkspace({
       <SignatureDictionaryWorkspace
         knowledgeCases={knowledgeCases}
         customSignatures={customSignatures}
+        signatureWeightRules={signatureWeightRules}
+        onChangeSignatureWeightRules={onChangeSignatureWeightRules}
         onChangeCustomSignatures={onChangeCustomSignatures}
         onFilterKnowledge={(filter) => {
           onFilterKnowledge(filter);
@@ -1501,12 +1824,16 @@ function KnowledgeDbWorkspace({
 function SignatureDictionaryWorkspace({
   knowledgeCases,
   customSignatures,
+  signatureWeightRules,
+  onChangeSignatureWeightRules,
   onChangeCustomSignatures,
   onFilterKnowledge,
   onShowCases,
 }: {
   knowledgeCases: KnowledgeCase[];
   customSignatures: SignatureTag[];
+  signatureWeightRules: SignatureWeightRule[];
+  onChangeSignatureWeightRules: (items: SignatureWeightRule[]) => void;
   onChangeCustomSignatures: (items: SignatureTag[]) => void;
   onFilterKnowledge: (filter: { key: string; value?: string }) => void;
   onShowCases: () => void;
@@ -1515,6 +1842,7 @@ function SignatureDictionaryWorkspace({
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [draftKey, setDraftKey] = useState('');
   const [draftValue, setDraftValue] = useState('');
+  const [showWeightSettings, setShowWeightSettings] = useState(false);
 
   const entries = useMemo(() => {
     const map = new Map<string, { key: string; value: string; count: number; caseIds: string[]; source: 'db' | 'user' }>();
@@ -1576,8 +1904,8 @@ function SignatureDictionaryWorkspace({
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      <aside className="w-80 flex-shrink-0 border-r border-border/60 p-3" style={{ background: 'var(--sidebar)' }}>
-        <div className="space-y-3">
+      <aside className="flex w-80 flex-shrink-0 flex-col overflow-hidden border-r border-border/60 p-3" style={{ background: 'var(--sidebar)' }}>
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
           <div>
             <p className="text-xs font-semibold text-foreground/90">Signature 사전</p>
             <p className="mt-1 text-[10px] text-muted-foreground">전체 key/value, 빈도, 연결 사례를 관리합니다.</p>
@@ -1600,9 +1928,9 @@ function SignatureDictionaryWorkspace({
               </button>
             </div>
           </div>
-          <div className="rounded-lg border border-border/60 p-3" style={{ background: 'var(--panel-surface)' }}>
+          <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-border/60 p-3" style={{ background: 'var(--panel-surface)' }}>
             <p className="mb-2 text-[10px] font-semibold text-muted-foreground">Key별 빈도</p>
-            <div className="flex max-h-40 flex-wrap gap-1 overflow-y-auto">
+            <div className="flex min-h-0 flex-1 content-start flex-wrap gap-1 overflow-y-auto pr-1">
               {Object.entries(keyCounts).sort((a, b) => b[1] - a[1]).map(([key, count]) => (
                 <button key={key} onClick={() => onFilterKnowledge({ key })} className="rounded-full border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground">
                   {key} · {count}
@@ -1613,7 +1941,34 @@ function SignatureDictionaryWorkspace({
         </div>
       </aside>
       <main className="flex-1 overflow-y-auto p-5" style={{ background: 'var(--background)' }}>
-        <div className="grid gap-2">
+        <div className="mx-auto max-w-6xl space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-foreground">{showWeightSettings ? 'Signature Weight 설정' : 'Signature 목록'}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {showWeightSettings ? '분석, 검색, 워크플로우 목적별 Signature key 중요도를 관리합니다.' : `${filtered.length}개 key/value 항목`}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowWeightSettings(prev => !prev)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors",
+                showWeightSettings ? "border-primary/40 bg-primary/10 text-primary" : "border-border/60 text-muted-foreground hover:bg-accent hover:text-foreground"
+              )}
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              {showWeightSettings ? '목록 보기' : 'Weight 설정'}
+            </button>
+          </div>
+          {showWeightSettings ? (
+            <SignatureWeightSettings
+              rules={signatureWeightRules}
+              onUpdate={onChangeSignatureWeightRules}
+              variant="wide"
+            />
+          ) : (
+            <div className="grid gap-2">
           {filtered.map(item => {
             const customIndex = customSignatures.findIndex(sig => sig.key === item.key && sig.value === item.value);
             return (
@@ -1642,6 +1997,8 @@ function SignatureDictionaryWorkspace({
               </div>
             );
           })}
+            </div>
+          )}
         </div>
       </main>
     </div>
@@ -1656,6 +2013,7 @@ export default function Home() {
   const [knowledgeCases, setKnowledgeCases] = useState<KnowledgeCase[]>(KNOWLEDGE_DB);
   const [importHistory, setImportHistory] = useState<ImportApprovalRecord[]>([]);
   const [customDictionarySignatures, setCustomDictionarySignatures] = useState<SignatureTag[]>([]);
+  const [signatureWeightRules, setSignatureWeightRules] = useState<SignatureWeightRule[]>(() => mergeSignatureWeightRules());
   const [knowledgeSignatureFilter, setKnowledgeSignatureFilter] = useState<{ key: string; value?: string } | null>(null);
   const [inputValue, setInputValue] = useState('');
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
@@ -1689,6 +2047,7 @@ export default function Home() {
         setIssues(mergeIssues(MOCK_ISSUES, snapshot.issues));
         setKnowledgeCases(mergeKnowledgeCases(KNOWLEDGE_DB, snapshot.knowledgeCases));
         setCustomDictionarySignatures(snapshot.signatureDictionary);
+        setSignatureWeightRules(mergeSignatureWeightRules(snapshot.signatureWeightRules));
         setImportHistory(snapshot.importResults);
       })
       .catch((error) => {
@@ -1718,6 +2077,14 @@ export default function Home() {
     setCustomDictionarySignatures(items);
     saveSignatureDictionary(items).catch((error) => {
       toast.error('Signature Dictionary save failed.', { description: error instanceof Error ? error.message : String(error) });
+    });
+  };
+
+  const updateSignatureWeightRules = (items: SignatureWeightRule[]) => {
+    const merged = mergeSignatureWeightRules(items);
+    setSignatureWeightRules(merged);
+    saveSignatureWeightRules(merged).catch((error) => {
+      toast.error('Signature weight rules save failed.', { description: error instanceof Error ? error.message : String(error) });
     });
   };
 
@@ -1818,6 +2185,17 @@ export default function Home() {
     );
   };
 
+  const jumpToEvent = (event: IssueEvent) => {
+    if (event.kind === 'message' && event.messageId) {
+      jumpToMessage(event.messageId);
+      return;
+    }
+    if (event.kind === 'panel') {
+      setActivePanel(event.panel);
+      toast.info(`${event.title} 위치로 이동했습니다.`);
+    }
+  };
+
   const addFilesAsAttachments = (files: FileList | File[]) => {
     const next = Array.from(files).map(file => ({
       id: `att-${Date.now()}-${file.name}`,
@@ -1862,26 +2240,44 @@ export default function Home() {
       ? `> 인용 (${quotedText.source}): "${quotedText.text}"\n\n${inputValue}`
       : inputValue;
     if (!content.trim() && !quotedText && pendingAttachments.length === 0) return;
-    const analysis = generateLocalRfReply({
-      text: content,
-      existingSignatures: selectedIssue.signatures,
-      quotedSource: quotedText?.source,
-    });
+    const attachmentContext = pendingAttachments.map(attachEvidenceTrace);
+    const useRfLocalFallback = isRfAnalysisIntent(content, attachmentContext);
+    const analysis = useRfLocalFallback
+      ? generateLocalRfReply({
+          text: content,
+          existingSignatures: selectedIssue.signatures,
+          quotedSource: quotedText?.source,
+          attachments: attachmentContext,
+          signatureWeightRules,
+        })
+      : { content: "", extractedTags: [] as SignatureTag[], source: 'fallback' as AnalysisSource, evidencePacket: undefined };
+    const localHypotheses = analysis.evidencePacket ? buildLocalHybridHypotheses(analysis.evidencePacket) : [];
     const newMsg: Message = {
       id: `m-${Date.now()}`,
       type: 'user',
       userId: 'kim',
       content: content.trim() || (pendingAttachments.length > 0 ? '첨부 자료를 추가했습니다.' : `> 인용 (${quotedText?.source}): "${quotedText?.text}"`),
-      attachments: pendingAttachments,
+      attachments: attachmentContext,
+      pendingAliasCandidates: analysis.evidencePacket?.pendingAliasCandidates,
       replyTo: replyingTo ? { id: replyingTo.id, userId: replyingTo.userId, content: replyingTo.content.slice(0, 160), timestamp: replyingTo.timestamp } : undefined,
       timestamp: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
     };
+    const localSummary = analysis.evidencePacket
+      ? buildLocalHybridSummary({
+          packet: analysis.evidencePacket,
+          messageId: newMsg.id,
+          previousSummary: selectedIssue.chatSummary,
+          timestamp: newMsg.timestamp,
+        })
+      : undefined;
     setIssues(prev => prev.map(iss =>
       iss.id === selectedIssueId
         ? {
             ...iss,
             messages: [...iss.messages, newMsg],
-            signatures: mergeSignatures(iss.signatures, analysis.extractedTags),
+            signatures: useRfLocalFallback ? mergeSignatures(iss.signatures, analysis.extractedTags) : iss.signatures,
+            hypotheses: localHypotheses.length > 0 ? localHypotheses : iss.hypotheses,
+            chatSummary: localSummary ?? iss.chatSummary,
           }
         : iss
     ));
@@ -1891,7 +2287,9 @@ export default function Home() {
     setQuotedText(null);
     setIsAiTyping(true);
     void (async () => {
-      let llmAnalysis = analysis;
+      let llmAnalysis = { ...analysis, source: 'fallback' as AnalysisSource };
+      let provider: Message['provider'] | undefined;
+      let fallbackReason: string | undefined;
       try {
         const response = await runRfFipLlm('chat-reply', {
           text: content,
@@ -1902,16 +2300,40 @@ export default function Home() {
             model: selectedIssue.model,
             band: selectedIssue.band,
             quotedSource: quotedText?.source,
+            sharedAnalysisContext: buildSharedAnalysisContext(selectedIssue, signatureWeightRules),
+            localEvidencePacket: analysis.evidencePacket,
           },
-          materials: pendingAttachments.map(att => ({
+          materials: attachmentContext.map(att => ({
             type: att.type,
             name: att.name,
             rows: att.rows,
           })),
         });
-        llmAnalysis = buildLlmChatAnalysis(response.result, analysis);
+        provider = response.provider === 'gauss' ? 'gauss' : response.provider;
+        if (!useRfLocalFallback && response.provider === 'local') {
+          fallbackReason = 'provider=local';
+          llmAnalysis = {
+            content: "LLM provider가 local로 동작 중입니다. 일반 질문은 local RF 분석으로 대체하지 않았습니다.",
+            extractedTags: [],
+            source: 'fallback',
+            evidencePacket: undefined,
+          };
+        } else {
+          llmAnalysis = {
+            ...buildLlmChatAnalysis(response.result, analysis),
+            source: response.provider === 'local' ? 'local-rule' : 'llm',
+            evidencePacket: analysis.evidencePacket,
+          };
+        }
       } catch (error) {
         console.info('RF-FIP LLM API unavailable; using local deterministic analysis.', error);
+        fallbackReason = error instanceof RfFipApiError ? `status=${error.status}` : 'unavailable';
+        llmAnalysis = {
+          ...analysis,
+          source: useRfLocalFallback ? 'local-rule' : 'fallback',
+          content: buildLlmFallbackNotice(error, useRfLocalFallback ? analysis.content : undefined),
+        };
+        provider = 'local';
       }
 
       setIsAiTyping(false);
@@ -1920,6 +2342,9 @@ export default function Home() {
         type: 'ai',
         content: llmAnalysis.content,
         extractedTags: llmAnalysis.extractedTags,
+        provider,
+        source: llmAnalysis.source,
+        fallbackReason,
         timestamp: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
       };
       setIssues(prev => prev.map(iss =>
@@ -2004,6 +2429,8 @@ export default function Home() {
           signatureFilter={knowledgeSignatureFilter}
           knowledgeCases={knowledgeCases}
           customSignatures={customDictionarySignatures}
+          signatureWeightRules={signatureWeightRules}
+          onChangeSignatureWeightRules={updateSignatureWeightRules}
           onChangeCustomSignatures={updateCustomDictionarySignatures}
           onFilterKnowledge={setKnowledgeSignatureFilter}
           onAddCase={persistKnowledgeCase}
@@ -2262,7 +2689,7 @@ export default function Home() {
               { key: 'signatures', label: 'Sig.', icon: Tag },
               { key: 'similar', label: '유사', icon: Search },
               { key: 'summary', label: '요약', icon: FileText },
-              { key: 'timeline', label: '기록', icon: Activity },
+              { key: 'timeline', label: '이벤트', icon: Activity },
             ] as const).map(({ key, label, icon: Icon }) => (
               <button key={key} onClick={() => setActivePanel(key)}
                 className={cn(
@@ -2304,6 +2731,7 @@ export default function Home() {
                 <motion.div key="similar" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}>
                   <SimilarCasesPanel
                     signatures={selectedIssue.signatures}
+                    signatureWeightRules={signatureWeightRules}
                     onQuoteToChat={(text, source) => {
                       setQuotedText({ text, source });
                       toast.success(`"${source}" 내용이 채팅 인용으로 추가되었습니다.`);
@@ -2317,6 +2745,10 @@ export default function Home() {
                     <ChatSummaryPanel
                       summary={selectedIssue.chatSummary}
                       onJumpToMessage={jumpToMessage}
+                      onQuoteToChat={(text, source) => {
+                        setQuotedText({ text, source });
+                        toast.success(`"${source}" 내용을 채팅 인용으로 추가했습니다.`);
+                      }}
                     />
                   )
                   : (
@@ -2329,17 +2761,39 @@ export default function Home() {
               )}
               {activePanel === 'timeline' && (
                 <motion.div key="timeline" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} className="space-y-3">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">분석 기록</p>
-                  {selectedIssue.messages.slice(-6).map(msg => (
-                    <div key={msg.id} className="rounded-lg border border-border/60 p-2" style={{ background: 'var(--panel-surface)' }}>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">분석 이벤트</p>
+                  {buildIssueEvents(selectedIssue).map(event => (
+                    <button
+                      key={event.id}
+                      type="button"
+                      onClick={() => jumpToEvent(event)}
+                      className="w-full rounded-lg border border-border/60 p-2 text-left transition-colors hover:bg-accent"
+                      style={{ background: 'var(--panel-surface)' }}
+                    >
                       <div className="mb-1 flex items-center justify-between gap-2">
-                        <span className="text-[10px] text-muted-foreground">
-                          {msg.type === 'ai' ? 'RF 분석 도우미' : msg.type === 'user' ? '사용자 입력' : '시스템'}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground/60">{msg.timestamp}</span>
+                        <span className="text-[10px] font-semibold text-foreground/80">{event.title}</span>
+                        <span className="text-[10px] text-muted-foreground/60">{event.time}</span>
                       </div>
-                      <p className="line-clamp-3 text-xs leading-relaxed text-foreground/75">{msg.content}</p>
-                    </div>
+                      <p className="line-clamp-2 text-xs leading-relaxed text-foreground/75">{event.detail}</p>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        <span className="rounded-full border border-border/50 px-1.5 py-0.5 text-[9px] text-muted-foreground">
+                          {event.kind === 'message' ? '채팅으로 이동' : `${event.panel} 탭으로 이동`}
+                        </span>
+                        {event.kind === 'message' && event.provider && (
+                          <span className="rounded-full border border-border/50 px-1.5 py-0.5 text-[9px] text-muted-foreground">
+                            {event.provider}
+                          </span>
+                        )}
+                        <span className="rounded-full border border-border/50 px-1.5 py-0.5 text-[9px] text-muted-foreground">
+                          {sourceLabel(event.source)}
+                        </span>
+                        {event.kind === 'message' && event.fallbackReason && (
+                          <span className="rounded-full border border-border/50 px-1.5 py-0.5 text-[9px] text-muted-foreground">
+                            {event.fallbackReason}
+                          </span>
+                        )}
+                      </div>
+                    </button>
                   ))}
                 </motion.div>
               )}

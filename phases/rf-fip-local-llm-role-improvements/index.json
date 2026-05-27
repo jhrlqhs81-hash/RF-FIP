@@ -1,0 +1,49 @@
+{
+  "project": "RF Failure Intelligence Platform UX",
+  "phase": "rf-fip-local-llm-role-improvements",
+  "goal": "Separate Local Engine and LLM responsibilities so local rules create evidence and LLMs enrich explanation, ranking, and summaries.",
+  "steps": [
+    {
+      "step": 0,
+      "name": "local-evidence-packet",
+      "status": "completed",
+      "verdict": "PASS",
+      "summary": "Added Local Evidence Packet generation from local RF signatures, taxonomy classification, diagnostic tests, missing info, and similar cases; chat LLM context now receives this packet. Verified with typecheck, harness policy check, diff check, and evidence packet smoke."
+    },
+    {
+      "step": 1,
+      "name": "hybrid-hypothesis-schema",
+      "status": "completed",
+      "verdict": "PASS",
+      "summary": "Added HybridHypothesisCandidate schema, evidence-id validation, local packet-to-hypothesis mapping, chat-time hypothesis refresh for RF intent, and hypothesis smoke coverage."
+    },
+    {
+      "step": 2,
+      "name": "llm-summary-next-steps",
+      "status": "completed",
+      "verdict": "PASS",
+      "summary": "Added evidence-grounded hybrid summary schema and local deterministic summary generation. Next steps now require text, rationale, evidence ids/labels, and messageId; UI source metadata and message jump support are preserved. Verified with summary smoke and typecheck."
+    },
+    {
+      "step": 3,
+      "name": "signature-normalization-synonyms",
+      "status": "completed",
+      "verdict": "PASS",
+      "summary": "Added no-dependency Korean/English RF synonym extraction for sensitivity drop, shield can, contact force/pressure, reassembly, conducted, and OTA terms; similarity value normalization now keeps synonym matches compatible with existing signature keys. Verified with signature synonym smoke and typecheck."
+    },
+    {
+      "step": 4,
+      "name": "import-reason-enrichment",
+      "status": "completed",
+      "verdict": "PASS",
+      "summary": "Added deterministic ImportStatusDecision shape, local evidence packet retention, importFacts, and attachment-backed source facts while preserving original-view modal and duplicate matching. Verified with import reason-shape smoke and build."
+    },
+    {
+      "step": 5,
+      "name": "attachment-evidence-linking",
+      "status": "completed",
+      "verdict": "PASS",
+      "summary": "Added attachment-derived LocalEvidenceItem entries for tables, images, URLs, and files; chat/import attachments carry concise evidence trace metadata for detail views and future OCR/LLM handoff. Verified with attachment evidence smoke, existing evidence/hypothesis smokes, typecheck, Vite build, and server esbuild."
+    }
+  ]
+}

@@ -6,11 +6,12 @@ import {
   Clock,
   HelpCircle,
   Lightbulb,
+  Quote,
   RefreshCw,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
-import { ChatSummary, SummaryItem } from "@/lib/mockData";
+import { ChatSummary, SummaryItem, type AnalysisSource } from "@/lib/mockData";
 import { cn } from "@/lib/utils";
 
 interface SectionProps {
@@ -22,6 +23,7 @@ interface SectionProps {
   borderColor: string;
   defaultOpen?: boolean;
   onJumpToMessage?: (messageId: string) => void;
+  onQuoteToChat?: (text: string, source: string) => void;
 }
 
 function summaryText(item: SummaryItem): string {
@@ -40,6 +42,24 @@ function summaryEvidence(item: SummaryItem): string[] {
   return typeof item === "string" ? [] : item.evidence ?? [];
 }
 
+function formatSummaryQuote(item: SummaryItem, sectionTitle: string): string {
+  const rationale = summaryRationale(item);
+  const evidence = summaryEvidence(item);
+  return [
+    `[${sectionTitle}] ${summaryText(item)}`,
+    rationale ? `Rationale: ${rationale}` : "",
+    evidence.length ? `Evidence: ${evidence.join(" / ")}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+function sourceLabel(source?: AnalysisSource): string {
+  if (source === "llm") return "LLM";
+  if (source === "local-rule") return "Local rule";
+  if (source === "fallback") return "Fallback";
+  if (source === "user-approved") return "User approved";
+  return "Mock/state";
+}
+
 function SummarySection({
   icon,
   title,
@@ -49,6 +69,7 @@ function SummarySection({
   borderColor,
   defaultOpen = true,
   onJumpToMessage,
+  onQuoteToChat,
 }: SectionProps) {
   const [open, setOpen] = useState(defaultOpen);
 
@@ -96,7 +117,7 @@ function SummarySection({
                   title={clickable ? "관련 채팅 위치로 이동" : undefined}
                 >
                   <span className="w-1 h-1 rounded-full mt-1.5 flex-shrink-0" style={{ background: color }} />
-                  <div className="min-w-0 space-y-1">
+                  <div className="min-w-0 flex-1 space-y-1">
                     <p className="text-[11px] text-foreground/80 leading-relaxed">{summaryText(item)}</p>
                     {rationale && (
                       <p className="text-[10px] leading-relaxed text-muted-foreground">
@@ -113,6 +134,19 @@ function SummarySection({
                       </div>
                     )}
                   </div>
+                  {onQuoteToChat && (
+                    <button
+                      type="button"
+                      className="mt-0.5 rounded-md border border-border/50 p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      title="채팅에 인용"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onQuoteToChat(formatSummaryQuote(item, title), `요약/${title}`);
+                      }}
+                    >
+                      <Quote className="h-3 w-3" />
+                    </button>
+                  )}
                 </motion.div>
                 );
               })}
@@ -127,11 +161,13 @@ function SummarySection({
 interface ChatSummaryPanelProps {
   summary: ChatSummary;
   onJumpToMessage?: (messageId: string) => void;
+  onQuoteToChat?: (text: string, source: string) => void;
 }
 
 export function ChatSummaryPanel({
   summary,
   onJumpToMessage,
+  onQuoteToChat,
 }: ChatSummaryPanelProps) {
   return (
     <motion.div
@@ -144,6 +180,9 @@ export function ChatSummaryPanel({
       <div className="flex items-center justify-between">
         <p className="text-[10px] text-muted-foreground uppercase tracking-wider">분석 요약</p>
         <div className="flex items-center gap-1 text-[10px] text-muted-foreground/50">
+          <span className="rounded-full border border-border/50 px-1.5 py-0.5">
+            {sourceLabel(summary.source)}
+          </span>
           <Clock className="w-3 h-3" />
           {summary.lastUpdated}
         </div>
@@ -157,6 +196,7 @@ export function ChatSummaryPanel({
         bgColor="var(--rf-amber-bg)"
         borderColor="var(--rf-amber-border)"
         onJumpToMessage={onJumpToMessage}
+        onQuoteToChat={onQuoteToChat}
       />
 
       <SummarySection
@@ -167,6 +207,7 @@ export function ChatSummaryPanel({
         bgColor="var(--rf-green-bg)"
         borderColor="var(--rf-green-border)"
         onJumpToMessage={onJumpToMessage}
+        onQuoteToChat={onQuoteToChat}
       />
 
       <SummarySection
@@ -176,6 +217,8 @@ export function ChatSummaryPanel({
         color="var(--rf-red-fg)"
         bgColor="var(--rf-red-bg)"
         borderColor="var(--rf-red-border)"
+        onJumpToMessage={onJumpToMessage}
+        onQuoteToChat={onQuoteToChat}
       />
 
       <SummarySection
@@ -185,6 +228,8 @@ export function ChatSummaryPanel({
         color="var(--rf-blue-fg)"
         bgColor="var(--rf-blue-bg)"
         borderColor="var(--rf-blue-border)"
+        onJumpToMessage={onJumpToMessage}
+        onQuoteToChat={onQuoteToChat}
       />
 
       <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/40 pt-1">

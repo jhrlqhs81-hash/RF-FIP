@@ -6,6 +6,7 @@ import {
   replaceIssues,
   replaceKnowledgeCases,
   replaceSignatureDictionary,
+  replaceSignatureWeightRules,
   saveImportResult,
   saveIssue,
   saveKnowledgeCase,
@@ -134,6 +135,17 @@ export async function handleRfFipApiRequest(req: IncomingMessage, res: ServerRes
     if (pathname === "/api/signature-dictionary" && method === "PUT") {
       const payload = await readJsonBody(req);
       sendJson(res, 200, { items: replaceSignatureDictionary(bodyItems(payload) as never[]) });
+      return true;
+    }
+
+    if (pathname === "/api/signature-weight-rules" && method === "GET") {
+      sendJson(res, 200, { items: getRfFipDbSnapshot().signatureWeightRules });
+      return true;
+    }
+
+    if (pathname === "/api/signature-weight-rules" && method === "PUT") {
+      const payload = await readJsonBody(req);
+      sendJson(res, 200, { items: replaceSignatureWeightRules(bodyItems(payload) as never[]) });
       return true;
     }
 

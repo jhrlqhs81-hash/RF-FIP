@@ -5,7 +5,7 @@ import {
   Zap, Ruler, Eye, Database, XCircle, ArrowRight,
   CheckCircle2, AlertCircle, Info, Cpu, Quote, MessageSquare
 } from "lucide-react";
-import { Hypothesis, EvidenceItem } from "@/lib/mockData";
+import { Hypothesis, EvidenceItem, type AnalysisSource } from "@/lib/mockData";
 import { cn } from "@/lib/utils";
 
 // ─── Evidence type config ─────────────────────────────────────────
@@ -58,6 +58,14 @@ const WEIGHT_CONFIG = {
   medium: { label: '중간', color: '#F59E0B', dot: 'bg-amber-400' },
   low: { label: '낮음', color: '#64748B', dot: 'bg-slate-400' },
 };
+
+function sourceLabel(source?: AnalysisSource): string {
+  if (source === "llm") return "LLM";
+  if (source === "local-rule") return "Local rule";
+  if (source === "fallback") return "Fallback";
+  if (source === "user-approved") return "User approved";
+  return "Mock/state";
+}
 
 // ─── EvidenceCard ─────────────────────────────────────────────────
 function EvidenceCard({ ev }: { ev: EvidenceItem }) {
@@ -160,6 +168,9 @@ function HypothesisDetailCard({ hyp, onQuoteToChat }: { hyp: Hypothesis; onQuote
               {hyp.status === 'validated' ? '검증 완료' : hyp.status === 'rejected' ? '기각됨' : '분석 중'}
             </span>
           </div>
+          <span className="mb-1 inline-flex rounded-full border border-border/50 px-1.5 py-0.5 text-[9px] text-muted-foreground">
+            {sourceLabel(hyp.source)}
+          </span>
           <p className="text-xs font-semibold text-foreground/95 leading-snug">{hyp.title}</p>
         </div>
 

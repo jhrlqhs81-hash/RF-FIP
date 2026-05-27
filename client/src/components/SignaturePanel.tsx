@@ -3,12 +3,17 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus, Tag, Check, Pencil, Trash2, Sparkles, ChevronRight,
   SearchCode, ArrowRight, Zap, TrendingUp, CheckCircle2,
-  AlertCircle, Clock, MessageSquare, X
+  AlertCircle, Clock, MessageSquare, X, SlidersHorizontal, RotateCcw, Save
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SignatureTag, IssueStatus } from "@/lib/mockData";
 import { KnowledgeCase, findSimilarCases } from "@/lib/similarCasesDb";
 import { RF_DESENSE_TAXONOMY, classifyDesenseCase } from "@/lib/rfDesenseTaxonomy";
+import {
+  DEFAULT_SIGNATURE_WEIGHT_RULES,
+  mergeSignatureWeightRules,
+  type SignatureWeightRule,
+} from "@/lib/signatureWeights";
 import { CaseDetailView, buildCaseDetailFromKnowledgeCase } from "@/components/CaseDetailView";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -249,13 +254,14 @@ function SimilarCaseCard({ kc, isTop, previewSigs, onQuoteToChat }: {
 }
 
 // ─── SimilarCasesPanel ────────────────────────────────────────────
-export function SimilarCasesPanel({ signatures, previewSigs = [], onQuoteToChat }: {
+export function SimilarCasesPanel({ signatures, previewSigs = [], signatureWeightRules, onQuoteToChat }: {
   signatures: SignatureTag[];
   previewSigs?: SignatureTag[];
+  signatureWeightRules?: SignatureWeightRule[];
   onQuoteToChat?: (text: string, source: string) => void;
 }) {
   const sigsToSearch = previewSigs.length > 0 ? previewSigs : signatures;
-  const cases = useMemo(() => findSimilarCases(sigsToSearch, 15, 4), [sigsToSearch]);
+  const cases = useMemo(() => findSimilarCases(sigsToSearch, 15, 4, signatureWeightRules), [sigsToSearch, signatureWeightRules]);
   const isPreview = previewSigs.length > 0;
 
   if (sigsToSearch.length === 0) return null;
@@ -307,6 +313,123 @@ interface SignaturePanelProps {
   issueStatus: IssueStatus;
   onUpdate: (sigs: SignatureTag[]) => void;
   onQuoteToChat?: (text: string, source: string) => void;
+}
+
+function WeightInput({ value, onChange, title }: { value: number; onChange: (value: number) => void; title: string }) {
+  return (
+    <input
+      aria-label={title}
+      type="number"
+      min={0}
+      max={5}
+      value={value}
+      onChange={event => onChange(Math.max(0, Math.min(5, Number(event.target.value) || 0)))}
+      className="h-7 w-11 rounded border border-border bg-input px-1 text-center text-[11px] font-mono text-foreground"
+    />
+  );
+}
+
+export function SignatureWeightSettings({
+  rules,
+  onUpdate,
+  variant = "compact",
+}: {
+  rules: SignatureWeightRule[];
+  onUpdate: (rules: SignatureWeightRule[]) => void;
+  variant?: "compact" | "wide";
+}) {
+  const mergedRules = useMemo(() => mergeSignatureWeightRules(rules), [rules]);
+  const [draft, setDraft] = useState<SignatureWeightRule[]>(mergedRules);
+
+  useEffect(() => {
+    setDraft(mergedRules);
+  }, [mergedRules]);
+
+  const updateRule = (id: string, patch: Partial<SignatureWeightRule>) => {
+    setDraft(prev => prev.map(rule =>
+      rule.id === id ? { ...rule, ...patch, updatedAt: new Date().toISOString() } : rule
+    ));
+  };
+
+  const save = () => {
+    onUpdate(draft);
+    toast.success("Signature 가중치 설정을 저장했습니다.");
+  };
+
+  const resetDefaults = () => {
+    setDraft(DEFAULT_SIGNATURE_WEIGHT_RULES);
+    onUpdate(DEFAULT_SIGNATURE_WEIGHT_RULES);
+    toast.success("Signature 가중치 기본값을 복원했습니다.");
+  };
+
+  return (
+    <div className="rounded-lg p-3 text-xs space-y-3"
+      style={{ background: 'var(--rf-card-bg)', border: '1px solid var(--rf-card-border)' }}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+            <SlidersHorizontal className="h-3.5 w-3.5 text-primary" />
+            Signature 가중치 설정
+          </p>
+          <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+            0은 영향 없음, 3은 일반 단서, 5는 핵심 gate입니다. 분석은 원인분류/RCA,
+            검색은 유사사례, 워크플로우는 누락 체크리스트와 LLM 맥락 우선순위에 반영됩니다.
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-1">
+          <button
+            type="button"
+            onClick={resetDefaults}
+            className="flex h-7 items-center gap-1 rounded border border-border px-2 text-[10px] text-muted-foreground hover:text-foreground"
+          >
+            <RotateCcw className="h-3 w-3" />
+            기본값
+          </button>
+          <button
+            type="button"
+            onClick={save}
+            className="flex h-7 items-center gap-1 rounded px-2 text-[10px] font-semibold"
+            style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
+          >
+            <Save className="h-3 w-3" />
+            저장
+          </button>
+        </div>
+      </div>
+      <div className={cn(variant === "wide" ? "max-h-[calc(100vh-260px)]" : "max-h-80", "space-y-2 overflow-y-auto pr-1")}>
+        {draft.map(rule => (
+          <div key={rule.id} className="rounded-md border border-border/60 p-2" style={{ background: 'var(--panel-surface)' }}>
+            <div className="flex items-start justify-between gap-3">
+              <label className="flex min-w-0 items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={rule.enabled}
+                  onChange={event => updateRule(rule.id, { enabled: event.target.checked })}
+                />
+                <span className="truncate font-mono text-[11px] text-foreground" title={rule.signatureKey}>{rule.signatureKey}</span>
+              </label>
+              <div className="grid shrink-0 grid-cols-3 gap-2">
+                <label className="flex flex-col items-center gap-1">
+                  <span className="text-[9px] font-medium text-muted-foreground">분석</span>
+                  <WeightInput title={`${rule.signatureKey} 분석 가중치`} value={rule.analysisWeight} onChange={value => updateRule(rule.id, { analysisWeight: value })} />
+                </label>
+                <label className="flex flex-col items-center gap-1">
+                  <span className="text-[9px] font-medium text-muted-foreground">검색</span>
+                  <WeightInput title={`${rule.signatureKey} 검색 가중치`} value={rule.retrievalWeight} onChange={value => updateRule(rule.id, { retrievalWeight: value })} />
+                </label>
+                <label className="flex flex-col items-center gap-1">
+                  <span className="text-[9px] font-medium text-muted-foreground">워크플로우</span>
+                  <WeightInput title={`${rule.signatureKey} 워크플로우 가중치`} value={rule.workflowWeight} onChange={value => updateRule(rule.id, { workflowWeight: value })} />
+                </label>
+              </div>
+            </div>
+            <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">{rule.reason}</p>
+            <p className="mt-1 text-[10px] leading-relaxed" style={{ color: 'var(--rf-amber-fg)' }}>{rule.operationRule}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function SignaturePanel({ signatures, issueStatus, onUpdate, onQuoteToChat }: SignaturePanelProps) {
@@ -642,6 +765,7 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate, onQuoteToCha
             <span className="badge-confirmed px-2 py-0.5 rounded text-[10px]">Confirmed (1.0)</span>
           </div>
         </div>
+
       </div>
 
     </motion.div>

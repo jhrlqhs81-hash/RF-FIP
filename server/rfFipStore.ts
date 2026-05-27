@@ -8,6 +8,18 @@ interface PersistedSignature {
   isNew?: boolean;
 }
 
+interface PersistedSignatureWeightRule {
+  id: string;
+  signatureKey: string;
+  analysisWeight: number;
+  retrievalWeight: number;
+  workflowWeight: number;
+  enabled: boolean;
+  reason: string;
+  operationRule: string;
+  updatedAt: string;
+}
+
 interface PersistedAttachment {
   id: string;
   type: "image" | "table" | "url" | "file";
@@ -64,6 +76,7 @@ interface RfFipDb {
   issues: PersistedIssue[];
   knowledgeCases: PersistedKnowledgeCase[];
   signatureDictionary: PersistedSignature[];
+  signatureWeightRules: PersistedSignatureWeightRule[];
   importResults: PersistedImportResult[];
 }
 
@@ -71,10 +84,11 @@ const EMPTY_DB: RfFipDb = {
   issues: [],
   knowledgeCases: [],
   signatureDictionary: [],
+  signatureWeightRules: [],
   importResults: [],
 };
 
-const COLLECTION_NAMES = ["issues", "knowledgeCases", "signatureDictionary", "importResults"] as const;
+const COLLECTION_NAMES = ["issues", "knowledgeCases", "signatureDictionary", "signatureWeightRules", "importResults"] as const;
 type CollectionName = typeof COLLECTION_NAMES[number];
 
 const dbDir = process.env.RF_FIP_DB_DIR
@@ -102,6 +116,7 @@ function parseLegacyJson(): RfFipDb | null {
       issues: Array.isArray(parsed.issues) ? parsed.issues : [],
       knowledgeCases: Array.isArray(parsed.knowledgeCases) ? parsed.knowledgeCases : [],
       signatureDictionary: Array.isArray(parsed.signatureDictionary) ? parsed.signatureDictionary : [],
+      signatureWeightRules: Array.isArray(parsed.signatureWeightRules) ? parsed.signatureWeightRules : [],
       importResults: Array.isArray(parsed.importResults) ? parsed.importResults : [],
     };
   } catch {
@@ -175,6 +190,7 @@ export function getRfFipDbSnapshot(): RfFipDb {
     issues: readCollection<PersistedIssue>("issues"),
     knowledgeCases: readCollection<PersistedKnowledgeCase>("knowledgeCases"),
     signatureDictionary: readCollection<PersistedSignature>("signatureDictionary"),
+    signatureWeightRules: readCollection<PersistedSignatureWeightRule>("signatureWeightRules"),
     importResults: readCollection<PersistedImportResult>("importResults"),
   };
 }
@@ -210,6 +226,10 @@ export function replaceKnowledgeCases(items: PersistedKnowledgeCase[]) {
 
 export function replaceSignatureDictionary(items: PersistedSignature[]) {
   return writeCollection("signatureDictionary", items);
+}
+
+export function replaceSignatureWeightRules(items: PersistedSignatureWeightRule[]) {
+  return writeCollection("signatureWeightRules", items);
 }
 
 export function saveImportResult(item: PersistedImportResult): PersistedImportResult {

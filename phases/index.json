@@ -3,6 +3,14 @@
     {
       "dir": "rf-fip-remaining-automation",
       "status": "blocked"
+    },
+    {
+      "dir": "rf-fip-local-llm-role-improvements",
+      "status": "completed"
+    },
+    {
+      "dir": "rf-fip-local-engine-performance",
+      "status": "implemented_needs_verification"
     }
   ]
 }

@@ -26,6 +26,18 @@
 - `value`
 - `isNew?`
 
+## SignatureWeightRule
+
+- `id`
+- `signatureKey`
+- `analysisWeight`: 0-5, classification/hypothesis/RCA importance
+- `retrievalWeight`: 0-5, Knowledge DB similarity and reuse importance
+- `workflowWeight`: 0-5, missing checklist, next-step, and LLM context priority
+- `enabled`
+- `reason`
+- `operationRule`
+- `updatedAt`
+
 ## ImportCandidate
 
 - `id`, `fileName`, `status`, `score`
@@ -46,5 +58,5 @@
 ## Storage
 
 - Runtime store is SQLite at `.rf-fip-db/rf-fip.sqlite` or `RF_FIP_DB_DIR/rf-fip.sqlite`.
-- Collections are persisted as JSON payload rows for `issues`, `knowledgeCases`, `signatureDictionary`, and `importResults`.
+- Collections are persisted as JSON payload rows for `issues`, `knowledgeCases`, `signatureDictionary`, `signatureWeightRules`, and `importResults`.
 - A legacy `.rf-fip-db/rf-fip.json` file may be migrated once when the SQLite store is empty.

@@ -1,0 +1,36 @@
+{
+  "project": "RF Failure Intelligence Platform UX",
+  "phase": "rf-fip-local-engine-performance",
+  "goal": "Improve Local Engine performance without adding heavyweight NLP dependencies or new UI.",
+  "status": "implemented_needs_verification",
+  "steps": [
+    {
+      "step": 1,
+      "name": "alias-dictionary-contract",
+      "status": "completed",
+      "verdict": "PASS_WITH_RISK",
+      "summary": "Strengthened the alias dictionary contract with approved/pending metadata and ensured canonicalization only uses approved aliases."
+    },
+    {
+      "step": 2,
+      "name": "pending-alias-preservation",
+      "status": "completed",
+      "verdict": "PASS_WITH_RISK",
+      "summary": "Preserved pending alias candidates in chat messages, shared LLM context, and Import local facts without adding UI."
+    },
+    {
+      "step": 3,
+      "name": "alias-aware-scoring",
+      "status": "completed",
+      "verdict": "PASS_WITH_RISK",
+      "summary": "Improved Knowledge DB similarity scoring so normalized signature keys can compare across Structure, Contact Structure, and Contact Type, using the best matching target value."
+    },
+    {
+      "step": 4,
+      "name": "verification",
+      "status": "blocked",
+      "verdict": "NOT_VERIFIED",
+      "summary": "Added local-engine performance smoke script and package script, but TypeScript/build/smoke execution requiring node_modules escalation was blocked by the Codex usage-limit gate. Static checks passed: harness policy and git diff whitespace check."
+    }
+  ]
+}

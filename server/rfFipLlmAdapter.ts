@@ -7,11 +7,13 @@ export type LlmTask =
   | "signature-normalize"
   | "attachment-analysis";
 
+type SignatureDto = { key: string; value: string; isNew?: boolean };
+
 export interface LlmRequestDto {
   task: LlmTask;
   text?: string;
   context?: Record<string, unknown>;
-  signatures?: Array<{ key: string; value: string; isNew?: boolean }>;
+  signatures?: SignatureDto[];
   materials?: Array<{ type: string; name: string; rows?: string[][]; text?: string }>;
 }
 
@@ -72,6 +74,71 @@ function requiredGaussGaps(): string[] {
 
 function uniq<T>(items: T[]): T[] {
   return Array.from(new Set(items));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeSignatureToken(value: string): string {
+  return value.normalize("NFKC").trim().toLowerCase().replace(/[\s_\-./()[\]{}:]+/g, "");
+}
+
+function signatureIdentity(signature: { key?: unknown; value?: unknown }): string | undefined {
+  if (typeof signature.key !== "string" || typeof signature.value !== "string") return undefined;
+  const key = normalizeSignatureToken(signature.key);
+  const value = normalizeSignatureToken(signature.value);
+  return key && value ? `${key}:${value}` : undefined;
+}
+
+function signatureFromUnknown(value: unknown): SignatureDto | undefined {
+  if (!isRecord(value) || typeof value.key !== "string" || typeof value.value !== "string") return undefined;
+  return { key: value.key, value: value.value, isNew: typeof value.isNew === "boolean" ? value.isNew : undefined };
+}
+
+function signaturesFromUnknownArray(value: unknown): SignatureDto[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap(item => {
+    const signature = signatureFromUnknown(item);
+    return signature ? [signature] : [];
+  });
+}
+
+function sharedAnalysisSignatures(context?: Record<string, unknown>): SignatureDto[] {
+  const sharedContext = context?.sharedAnalysisContext;
+  if (!isRecord(sharedContext)) return [];
+  return signaturesFromUnknownArray(sharedContext.signatures);
+}
+
+function existingSignatures(request: LlmRequestDto): SignatureDto[] {
+  return [...(request.signatures ?? []), ...sharedAnalysisSignatures(request.context)];
+}
+
+function existingSignatureIdentitySet(request: LlmRequestDto): Set<string> {
+  return new Set(existingSignatures(request).flatMap(item => {
+    const identity = signatureIdentity(item);
+    return identity ? [identity] : [];
+  }));
+}
+
+function filterNewSignatures(candidates: unknown, request: LlmRequestDto): SignatureDto[] {
+  const seen = existingSignatureIdentitySet(request);
+  const filtered: SignatureDto[] = [];
+  for (const candidate of signaturesFromUnknownArray(candidates)) {
+    const identity = signatureIdentity(candidate);
+    if (!identity || seen.has(identity)) continue;
+    seen.add(identity);
+    filtered.push({ ...candidate, isNew: candidate.isNew ?? true });
+  }
+  return filtered;
+}
+
+function enforceSignatureDedupe(result: Record<string, unknown>, request: LlmRequestDto): Record<string, unknown> {
+  return {
+    ...result,
+    ...(Array.isArray(result.extractedTags) ? { extractedTags: filterNewSignatures(result.extractedTags, request) } : {}),
+    ...(Array.isArray(result.signatures) ? { signatures: filterNewSignatures(result.signatures, request) } : {}),
+  };
 }
 
 function extractLocalSignatures(text: string): Array<{ key: string; value: string; isNew: true }> {
@@ -141,12 +208,40 @@ function openAiApiKey(): string | undefined {
   return process.env.OPENAI_API_KEY || process.env["open-ai-api-key"];
 }
 
+const RF_KNOWLEDGE_CONTEXT = {
+  purpose: "Reference guidance only. Use measured evidence and local evidence packets as the source of truth.",
+  principles: [
+    "Separate conducted baseline from OTA path before blaming antenna or mechanical structures.",
+    "For Tx-correlated desense, ask for Tx power sweep, band/channel sweep, and IM or harmonic frequency mapping.",
+    "Pressure, reassembly, shield, clip, screw, spring, and contact clues increase mechanical contact or PIM suspicion.",
+    "Function ON/OFF clues from display, MIPI, camera, USB, DDR, PMIC, or DC-DC increase internal spur suspicion.",
+    "Missing measurements must be returned as missingInfo or next actions; do not invent measurements or pass/fail results.",
+  ],
+  signaturePolicy: [
+    "Signatures are compact evidence tags, not narrative text.",
+    "Prefer canonical key/value pairs already used by the app when possible.",
+    "Never return a signature already present in input.signatures or context.sharedAnalysisContext.signatures.",
+  ],
+};
+
+function buildExistingSignatureGuard(request: LlmRequestDto): Record<string, unknown> {
+  return {
+    rule: "Return only signatures that are new versus input.signatures and context.sharedAnalysisContext.signatures.",
+    duplicatePolicy: "If a candidate has the same normalized key and value as an existing signature, omit it from extractedTags and signatures.",
+    existingSignatures: existingSignatures(request),
+  };
+}
+
 function buildOpenAiInstructions(task: LlmTask): string {
   return [
     "You are an RF-FIP analysis assistant for RF desense, PIM, OTA, conducted, and signature triage.",
     "Return concise Korean engineering language unless the input is English.",
     "Always return JSON matching the requested task shape.",
     `Current task: ${task}.`,
+    "Use rfKnowledgeContext as reference guidance only; measured user input and local evidence packets are the source of truth.",
+    "Do not invent measurements, test outcomes, root causes, or evidence IDs.",
+    "For extractedTags and signatures, compare against existingSignatureGuard and return only new key/value pairs.",
+    "If an existing signature is relevant, mention it in content, reasons, or rationale instead of repeating it as a new signature.",
     "Do not expose or infer secrets, credentials, or environment variables.",
   ].join("\n");
 }
@@ -158,6 +253,8 @@ function buildOpenAiInput(request: LlmRequestDto): string {
     context: request.context ?? {},
     signatures: request.signatures ?? [],
     materials: request.materials ?? [],
+    rfKnowledgeContext: RF_KNOWLEDGE_CONTEXT,
+    existingSignatureGuard: buildExistingSignatureGuard(request),
     expectedResultByTask: {
       "chat-reply": {
         content: "Actionable RF analysis response",
@@ -314,7 +411,7 @@ async function openAiResult(request: LlmRequestDto): Promise<Record<string, unkn
     if (!outputText) {
       throw new LlmProviderError("openai", 502, "OpenAI response did not include output text.");
     }
-    return parseOpenAiResult(outputText);
+    return enforceSignatureDedupe(parseOpenAiResult(outputText), request);
   } catch (error) {
     if (error instanceof LlmProviderError) throw error;
     if (error instanceof Error && error.name === "AbortError") {
@@ -328,7 +425,7 @@ async function openAiResult(request: LlmRequestDto): Promise<Record<string, unkn
 
 function localResult(request: LlmRequestDto): Record<string, unknown> {
   const text = request.text ?? "";
-  const extracted = extractLocalSignatures(text);
+  const extracted = filterNewSignatures(extractLocalSignatures(text), request);
   const signatures = uniq([...(request.signatures ?? []), ...extracted].map(item => `${item.key}|||${item.value}`))
     .map(item => {
       const [key, value] = item.split("|||");

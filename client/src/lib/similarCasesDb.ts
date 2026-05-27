@@ -1,5 +1,7 @@
 import { ChatAttachment, SignatureTag } from "./mockData";
 import { RF_DESENSE_KEY_WEIGHTS } from "./rfDesenseTaxonomy";
+import { normalizeSignatureComparable, normalizeSignatureKeyComparable } from "./signatureAliasResolver";
+import { getSignatureGroupWeight, type SignatureWeightRule } from "./signatureWeights";
 
 // ─── Knowledge DB (Confirmed RCA 사례) ───────────────────────────
 export interface KnowledgeCase {
@@ -256,7 +258,26 @@ export const KNOWLEDGE_DB: KnowledgeCase[] = [
  * 현재 이슈의 Signature 배열과 Knowledge DB 사례의 유사도를 계산합니다.
  * 키 일치 + 값 일치 여부를 가중치로 계산합니다.
  */
-export function calcSimilarity(current: SignatureTag[], target: KnowledgeCase): number {
+function normalizeSignatureValue(value: string): string {
+  const normalized = normalizeSignatureComparable(value);
+  if (/desense|sensitivity drop|sensitivity loss|감도 저하|수신 감도/.test(normalized)) return "sensitivity drop";
+  if (/shield can|shield-can|차폐 캔|쉴드 캔|shield contact/.test(normalized)) return "shield can";
+  if (/contact force|pressure|압력|접촉 압|가압/.test(normalized)) return "pressure sensitive";
+  if (/reassembly|re-assembly|재 조립|재조립/.test(normalized)) return "reassembly";
+  if (/conducted|rf cable|전도|케이블/.test(normalized)) return "conducted";
+  if (/ota|tis|eis|chamber|방사|챔버/.test(normalized)) return "ota";
+  return normalized;
+}
+
+function valueMatchScore(currentValue: string, targetValue: string): number {
+  const curVal = normalizeSignatureValue(currentValue);
+  const tgtVal = normalizeSignatureValue(targetValue);
+  if (curVal === tgtVal) return 1;
+  if (curVal.includes(tgtVal) || tgtVal.includes(curVal)) return 0.6;
+  return 0.1;
+}
+
+export function calcSimilarity(current: SignatureTag[], target: KnowledgeCase, signatureWeightRules?: SignatureWeightRule[]): number {
   if (current.length === 0) return 0;
 
   let matchScore = 0;
@@ -289,18 +310,23 @@ export function calcSimilarity(current: SignatureTag[], target: KnowledgeCase): 
 
   // current 기준으로 target과 매칭
   for (const cur of current) {
-    const w = KEY_WEIGHTS[cur.key] ?? DEFAULT_WEIGHT;
+    const curKey = normalizeSignatureKeyComparable(cur.key);
+    const configuredWeight = getSignatureGroupWeight(cur.key, "retrieval", signatureWeightRules);
+    const w = signatureWeightRules ? configuredWeight : KEY_WEIGHTS[cur.key] ?? KEY_WEIGHTS[curKey] ?? DEFAULT_WEIGHT;
     totalWeight += w;
 
     // 키 일치 여부 확인 (대소문자 무시)
-    const targetTag = target.signatures.find(
-      t => t.key.toLowerCase() === cur.key.toLowerCase()
+    const targetTags = target.signatures.filter(
+      t => normalizeSignatureKeyComparable(t.key).toLowerCase() === curKey.toLowerCase()
     );
-    if (!targetTag) continue;
+    if (targetTags.length === 0) continue;
+    const targetTag = targetTags.reduce((best, item) =>
+      valueMatchScore(cur.value, item.value) > valueMatchScore(cur.value, best.value) ? item : best
+    );
 
     // 값 일치 여부 (부분 일치 포함)
-    const curVal = cur.value.toLowerCase().trim();
-    const tgtVal = targetTag.value.toLowerCase().trim();
+    const curVal = normalizeSignatureValue(cur.value);
+    const tgtVal = normalizeSignatureValue(targetTag.value);
 
     if (curVal === tgtVal) {
       matchScore += w; // 완전 일치
@@ -314,8 +340,10 @@ export function calcSimilarity(current: SignatureTag[], target: KnowledgeCase): 
 
   // target 기준으로 current에 없는 중요 키 패널티
   for (const tgt of target.signatures) {
-    const w = KEY_WEIGHTS[tgt.key] ?? DEFAULT_WEIGHT;
-    const hasKey = current.some(c => c.key.toLowerCase() === tgt.key.toLowerCase());
+    const tgtKey = normalizeSignatureKeyComparable(tgt.key);
+    const configuredWeight = getSignatureGroupWeight(tgt.key, "retrieval", signatureWeightRules);
+    const w = signatureWeightRules ? configuredWeight : KEY_WEIGHTS[tgt.key] ?? KEY_WEIGHTS[tgtKey] ?? DEFAULT_WEIGHT;
+    const hasKey = current.some(c => normalizeSignatureKeyComparable(c.key).toLowerCase() === tgtKey.toLowerCase());
     if (!hasKey) {
       totalWeight += w * 0.3; // 없는 키는 낮은 가중치로 분모에만 추가
     }
@@ -334,10 +362,11 @@ export function calcSimilarity(current: SignatureTag[], target: KnowledgeCase): 
 export function findSimilarCases(
   current: SignatureTag[],
   threshold = 20,
-  limit = 4
+  limit = 4,
+  signatureWeightRules?: SignatureWeightRule[],
 ): KnowledgeCase[] {
   return KNOWLEDGE_DB
-    .map(kc => ({ ...kc, similarity: calcSimilarity(current, kc) }))
+    .map(kc => ({ ...kc, similarity: calcSimilarity(current, kc, signatureWeightRules) }))
     .filter(kc => (kc.similarity ?? 0) >= threshold)
     .sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0))
     .slice(0, limit);

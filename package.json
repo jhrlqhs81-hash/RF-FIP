@@ -15,6 +15,16 @@
     "smoke:sqlite": "node scripts/rf-fip-sqlite-smoke.mjs",
     "smoke:llm": "node scripts/rf-fip-llm-adapter-smoke.mjs",
     "smoke:openai": "node scripts/rf-fip-openai-live-smoke.mjs",
+    "smoke:evidence": "node scripts/rf-fip-evidence-packet-smoke.mjs",
+    "smoke:hypothesis": "node scripts/rf-fip-hybrid-hypothesis-smoke.mjs",
+    "smoke:summary": "node scripts/rf-fip-hybrid-summary-smoke.mjs",
+    "smoke:signature-synonyms": "node scripts/rf-fip-signature-synonym-smoke.mjs",
+    "smoke:signature-aliases": "node scripts/rf-fip-signature-alias-resolver-smoke.mjs",
+    "smoke:local-engine-performance": "node scripts/rf-fip-local-engine-performance-smoke.mjs",
+    "smoke:llm-prompt-contract": "node scripts/rf-fip-llm-prompt-contract-smoke.mjs",
+    "smoke:signature-weights": "node scripts/rf-fip-signature-weights-smoke.mjs",
+    "smoke:import-reasons": "node scripts/rf-fip-import-reason-shape-smoke.mjs",
+    "smoke:attachment-evidence": "node scripts/rf-fip-attachment-evidence-smoke.mjs",
     "format": "prettier --write ."
   },
   "dependencies": {

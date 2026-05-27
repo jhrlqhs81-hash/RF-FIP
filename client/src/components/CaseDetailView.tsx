@@ -34,6 +34,7 @@ function DetailCard({ title, icon, children }: { title: string; icon: ReactNode;
 
 function MaterialDetailModal({ item, onClose }: { item: ChatAttachment; onClose: () => void }) {
   const externalUrl = item.type === "url" && item.url && /^https?:\/\//i.test(item.url) ? item.url : undefined;
+  const evidence = item.evidence ?? [];
 
   return (
     <div
@@ -55,6 +56,16 @@ function MaterialDetailModal({ item, onClose }: { item: ChatAttachment; onClose:
           <button onClick={onClose} className="rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground">
             닫기
           </button>
+          {evidence.length > 0 && (
+            <div className="mt-3 rounded-xl border border-border/60 p-3" style={{ background: "var(--panel-surface)" }}>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Attachment evidence</p>
+              <ul className="mt-2 space-y-1">
+                {evidence.map((fact, index) => (
+                  <li key={index} className="text-xs leading-relaxed text-foreground/75">- {fact}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
         <div className="max-h-[70vh] overflow-y-auto p-4">
           {item.type === "image" && item.url && (
