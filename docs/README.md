@@ -18,6 +18,7 @@ Harness phase 설계와 실행은 아래 문서를 출발점으로 삼는다.
 - `RF_DOMAIN_SPEC.md`: RF desense taxonomy 참조 규칙
 - `IMPORT_SPEC.md`: RAW/Excel import 기준
 - `LLM_GAUSS_CONTRACT.md`: Gauss adapter 계약과 blocked 조건
+- `AI_ROLE_CHECKLIST.md`: Local Engine, LLM, Hybrid 역할 분리와 회귀 체크리스트
 - `GAUSS_INTERNAL_HANDOFF.md`: 사내 PC/네트워크에서 실제 Gauss 연동을 시작하기 위한 체크리스트
 
 ## Decision Records
