@@ -14,6 +14,7 @@ const requiredNeedles = [
   "Return only signatures",
   "Knowledge case excerpts are confirmed-case references only",
   "context.sharedAnalysisContext.signatures",
+  "context.sharedAnalysisContext.metadataContext",
   "Do not invent measurements",
   "enforceSignatureDedupe",
   "filterNewSignatures",

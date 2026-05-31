@@ -7,6 +7,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, "..");
 const scratchDir = path.join(projectRoot, ".rf-fip-db", "signature-mapping-audit");
 const registryBundlePath = path.join(scratchDir, "signature-concept-registry.mjs");
+const groupBundlePath = path.join(scratchDir, "signature-tag-groups.mjs");
 const seedBundlePath = path.join(scratchDir, "knowledge-seed-cases.mjs");
 const mockBundlePath = path.join(scratchDir, "mock-data.mjs");
 
@@ -109,6 +110,7 @@ function summarize(records) {
 await fs.mkdir(scratchDir, { recursive: true });
 for (const [entry, outfile] of [
   ["client/src/lib/signatureConceptRegistry.ts", registryBundlePath],
+  ["client/src/lib/signatureTagGroups.ts", groupBundlePath],
   ["client/src/lib/knowledgeSeedCases.ts", seedBundlePath],
   ["client/src/lib/mockData.ts", mockBundlePath],
 ]) {
@@ -123,8 +125,27 @@ for (const [entry, outfile] of [
 }
 
 const registry = await import(`${pathToFileURL(registryBundlePath).href}?t=${Date.now()}`);
+const groups = await import(`${pathToFileURL(groupBundlePath).href}?t=${Date.now()}`);
 const seed = await import(`${pathToFileURL(seedBundlePath).href}?t=${Date.now()}`);
 const mock = await import(`${pathToFileURL(mockBundlePath).href}?t=${Date.now()}`);
+
+for (const signature of [
+  { key: "RAT", value: "LTE" },
+  { key: "Band", value: "B3" },
+  { key: "Degradation", value: "3dB" },
+  { key: "Unit Scope", value: "Single unit" },
+  { key: "Tx Threshold", value: "20 dBm" },
+]) {
+  assert(groups.isMetadataSignature(signature), `${signature.key} should be classified as metadata.`);
+}
+
+for (const signature of [
+  { key: "Mechanism", value: "Contact nonlinearity IM3" },
+  { key: "Desense Category", value: "TX-induced PIM Desense" },
+  { key: "PIM Risk", value: "High" },
+]) {
+  assert(groups.isNarrativeSignature(signature), `${signature.key} should be classified as RCA/narrative.`);
+}
 
 const records = collectSignatures(seed, mock).map(row => {
   const status = classify(row.signature, registry);

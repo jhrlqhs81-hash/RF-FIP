@@ -23,7 +23,7 @@ Primary taxonomy source: `../RF_DESENSE_TAXONOMY.md`.
 
 Each accepted KnowledgeCase should have:
 
-- at least one band or RAT signature
+- at least one band or RAT metadata field
 - a root cause or hold reason
 - diagnostic evidence
 - mitigation/action guide

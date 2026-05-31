@@ -29,7 +29,8 @@ import {
   type ImportCandidate,
 } from "@/lib/importCandidateAnalyzer";
 import { SignaturePanel, SignatureWeightSettings, SimilarCasesPanel } from "@/components/SignaturePanel";
-import { getSignatureMappingStatus, SignatureMappingBadge, SignatureMappingDetail, type SignatureMappingStatus } from "@/components/SignatureMapping";
+import { getSignatureMappingStatus, isAnalysisMappingRisk, SignatureMappingBadge, SignatureMappingDetail, type SignatureMappingStatus } from "@/components/SignatureMapping";
+import { getBandValue, splitSignatureTags } from "@/lib/signatureTagGroups";
 import { HypothesisDetailPanel } from "@/components/HypothesisDetailPanel";
 import { ChatSummaryPanel } from "@/components/ChatSummaryPanel";
 import { RcaSummaryModal } from "@/components/RcaSummaryModal";
@@ -198,8 +199,11 @@ function summaryItemPlainText(item: SummaryItem): string {
 }
 
 function buildSharedAnalysisContext(issue: Issue, signatureWeightRules: SignatureWeightRule[], knowledgeCases: KnowledgeCase[], signatureAliasDictionary: SignatureAliasEntry[]) {
-  const similarCases = findSimilarCases(issue.signatures, 15, 4, signatureWeightRules, knowledgeCases, signatureAliasDictionary);
-  const weightedSignatures = weightedSignatureContext(issue.signatures, signatureWeightRules);
+  const signatureGroups = splitSignatureTags(issue.signatures);
+  const similarCases = findSimilarCases(issue.signatures, 15, 4, signatureWeightRules, knowledgeCases, signatureAliasDictionary, {
+    currentBand: getBandValue(issue.signatures, issue.band),
+  });
+  const weightedSignatures = weightedSignatureContext(signatureGroups.analysisSignatures, signatureWeightRules);
   return {
     issue: {
       id: issue.id,
@@ -208,7 +212,17 @@ function buildSharedAnalysisContext(issue: Issue, signatureWeightRules: Signatur
       band: issue.band,
       status: issue.status,
     },
-    signatures: issue.signatures.map(tag => ({
+    signatures: signatureGroups.analysisSignatures.map(tag => ({
+      key: tag.key,
+      value: tag.value,
+      source: tag.isNew ? 'extracted-or-new' : 'existing',
+    })),
+    metadataContext: signatureGroups.metadataTags.map(tag => ({
+      key: tag.key,
+      value: tag.value,
+      source: tag.isNew ? 'extracted-or-new' : 'existing',
+    })),
+    narrativeContext: signatureGroups.narrativeTags.map(tag => ({
       key: tag.key,
       value: tag.value,
       source: tag.isNew ? 'extracted-or-new' : 'existing',
@@ -244,6 +258,8 @@ function buildSharedAnalysisContext(issue: Issue, signatureWeightRules: Signatur
       id: item.id,
       title: item.title,
       similarity: item.similarity,
+      bandMatch: item.bandMatch,
+      bandComparison: item.bandComparison,
       rootCause: item.confirmedRootCause,
       mitigation: item.mitigation,
       signatures: item.signatures,
@@ -615,11 +631,37 @@ function ChatMessage({ msg, users, onReply, onApproveAlias }: {
 }
 
 // ─── DB Confirm Modal ─────────────────────────────────────────────
+function DbConfirmSignatureGroup({ title, signatures }: { title: string; signatures: SignatureTag[] }) {
+  if (signatures.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
+        <span className="font-mono text-[10px] text-muted-foreground/60">{signatures.length}</span>
+      </div>
+      <div className="grid gap-2 md:grid-cols-2">
+        {signatures.map((tag, i) => (
+          <div key={`${title}-${tag.key}-${tag.value}-${i}`} className="rounded-lg border border-border/60 p-2" style={{ background: 'var(--card)' }}>
+            <div className="mb-1 flex flex-wrap items-center gap-1.5">
+              <span className="sig-tag">{tag.key}: {tag.value}</span>
+            </div>
+            <SignatureMappingDetail tag={tag} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function DBConfirmModal({ issue, onClose, onApprove, onReject }: {
   issue: Issue; onClose: () => void; onApprove: () => void; onReject: (reason: string) => void;
 }) {
   const [mode, setMode] = useState<'review' | 'reject'>('review');
   const [rejectReason, setRejectReason] = useState('');
+  const signatureGroups = splitSignatureTags(issue.signatures);
+  const hasAnalysisMappingRisk = signatureGroups.analysisSignatures.some(sig =>
+    isAnalysisMappingRisk(getSignatureMappingStatus(sig))
+  );
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -667,20 +709,15 @@ function DBConfirmModal({ issue, onClose, onApprove, onReject }: {
             <h3 className="text-sm font-semibold text-foreground/90 flex items-center gap-2">
               <Tag className="w-4 h-4" style={{ color: 'var(--rf-blue-fg)' }} /> Signature 태그
             </h3>
-            {issue.signatures.some(sig => getSignatureMappingStatus(sig).tone !== "mapped") && (
+            {hasAnalysisMappingRisk && (
               <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
                 미매핑 또는 부분 매핑 Signature가 있어 DB 등록 후 분석/검색 활용이 제한될 수 있습니다.
               </p>
             )}
-            <div className="grid gap-2 md:grid-cols-2">
-              {issue.signatures.map((tag, i) => (
-                <div key={i} className="rounded-lg border border-border/60 p-2" style={{ background: 'var(--card)' }}>
-                  <div className="mb-1 flex flex-wrap items-center gap-1.5">
-                    <span className="sig-tag">{tag.key}: {tag.value}</span>
-                  </div>
-                  <SignatureMappingDetail tag={tag} />
-                </div>
-              ))}
+            <div className="space-y-4">
+              <DbConfirmSignatureGroup title="분석 Signature" signatures={signatureGroups.analysisSignatures} />
+              <DbConfirmSignatureGroup title="메타데이터" signatures={signatureGroups.metadataTags} />
+              <DbConfirmSignatureGroup title="RCA 속성" signatures={signatureGroups.narrativeTags} />
             </div>
           </div>
           <div className="rounded-xl p-4 space-y-2" style={{ background: 'var(--panel-surface)', border: '1px solid var(--border)' }}>
@@ -1669,6 +1706,11 @@ function SignatureDictionaryWorkspace({
     if (!needle) return true;
     return `${item.key} ${item.value} ${item.mapping.label} ${item.mapping.detail ?? ''} ${item.caseIds.join(' ')}`.toLowerCase().includes(needle);
   });
+  const groupedFiltered = [
+    { title: "분석 Signature", items: filtered.filter(item => item.mapping.tone !== "metadata" && item.mapping.tone !== "narrative") },
+    { title: "메타데이터", items: filtered.filter(item => item.mapping.tone === "metadata") },
+    { title: "RCA 속성", items: filtered.filter(item => item.mapping.tone === "narrative") },
+  ];
 
   const startEdit = (index: number) => {
     setEditingIndex(index);
@@ -1784,8 +1826,15 @@ function SignatureDictionaryWorkspace({
               variant="wide"
             />
           ) : (
-            <div className="grid gap-2">
-          {filtered.map(item => {
+            <div className="space-y-4">
+          {groupedFiltered.filter(group => group.items.length > 0).map(group => (
+            <section key={group.title} className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{group.title}</p>
+                <span className="font-mono text-[10px] text-muted-foreground/60">{group.items.length}</span>
+              </div>
+              <div className="grid gap-2">
+          {group.items.map(item => {
             const customIndex = customSignatures.findIndex(sig => sig.key === item.key && sig.value === item.value);
             return (
               <div key={`${item.key}-${item.value}`} className="rounded-xl border border-border/70 p-3" style={{ background: 'var(--card)' }}>
@@ -1818,6 +1867,9 @@ function SignatureDictionaryWorkspace({
               </div>
             );
           })}
+              </div>
+            </section>
+          ))}
             </div>
           )}
         </div>

@@ -2,14 +2,22 @@ import { ChatAttachment, SignatureTag } from "./mockData";
 import { canonicalizeSignatureTag, type SignatureAliasEntry } from "./signatureAliasResolver";
 import { signatureConceptComparable } from "./signatureConceptRegistry";
 import { getSignatureTagGroupWeight, type SignatureWeightRule } from "./signatureWeights";
+import { getBandValue, splitSignatureTags } from "./signatureTagGroups";
 
-// ─── Knowledge DB (Confirmed RCA 사례) ───────────────────────────
+export type BandMatch = "same" | "different" | "unknown";
+
+export interface BandComparison {
+  current?: string;
+  target?: string;
+  effect: number;
+}
+
 export interface KnowledgeCase {
   id: string;
   title: string;
   model: string;
   band: string;
-  status: 'confirmed' | 'validated';
+  status: "confirmed" | "validated";
   confirmedRootCause: string;
   mitigation: string;
   symptomPattern?: string;
@@ -19,7 +27,13 @@ export interface KnowledgeCase {
   decisionRationale?: string[];
   usedMaterials?: ChatAttachment[];
   signatures: SignatureTag[];
-  similarity?: number; // 0~100, 계산 후 주입
+  similarity?: number;
+  bandMatch?: BandMatch;
+  bandComparison?: BandComparison;
+}
+
+export interface SimilarityOptions {
+  currentBand?: string;
 }
 
 function signatureKeyComparable(tag: SignatureTag, signatureAliasDictionary?: SignatureAliasEntry[]): string {
@@ -38,62 +52,98 @@ function conceptAwareValueMatchScore(current: SignatureTag, target: SignatureTag
   return 0.1;
 }
 
-export function calcSimilarity(current: SignatureTag[], target: KnowledgeCase, signatureWeightRules?: SignatureWeightRule[], signatureAliasDictionary?: SignatureAliasEntry[]): number {
-  if (current.length === 0) return 0;
+function normalizeBand(value?: string): string | undefined {
+  const normalized = value?.normalize("NFKC").toLowerCase().replace(/\s+/g, "").trim();
+  if (!normalized || normalized === "-") return undefined;
+  return normalized.replace(/^lte/, "").replace(/^nr/, "");
+}
+
+function getCaseBand(target: KnowledgeCase): string | undefined {
+  return getBandValue(target.signatures, target.band);
+}
+
+function buildBandComparison(current: SignatureTag[], target: KnowledgeCase, options?: SimilarityOptions): {
+  match: BandMatch;
+  comparison: BandComparison;
+} {
+  const currentBand = getBandValue(current, options?.currentBand);
+  const targetBand = getCaseBand(target);
+  const normalizedCurrent = normalizeBand(currentBand);
+  const normalizedTarget = normalizeBand(targetBand);
+  if (!normalizedCurrent || !normalizedTarget) {
+    return {
+      match: "unknown",
+      comparison: { current: currentBand, target: targetBand, effect: 0 },
+    };
+  }
+  if (normalizedCurrent === normalizedTarget) {
+    return {
+      match: "same",
+      comparison: { current: currentBand, target: targetBand, effect: 6 },
+    };
+  }
+  return {
+    match: "different",
+    comparison: { current: currentBand, target: targetBand, effect: -6 },
+  };
+}
+
+function clampScore(score: number): number {
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+export function calcSimilarity(
+  current: SignatureTag[],
+  target: KnowledgeCase,
+  signatureWeightRules?: SignatureWeightRule[],
+  signatureAliasDictionary?: SignatureAliasEntry[],
+  options?: SimilarityOptions,
+): number {
+  const currentAnalysis = splitSignatureTags(current).analysisSignatures;
+  const targetAnalysis = splitSignatureTags(target.signatures).analysisSignatures;
+  if (currentAnalysis.length === 0) return 0;
 
   let matchScore = 0;
   let totalWeight = 0;
 
-
-  // current 기준으로 target과 매칭
-  for (const cur of current) {
+  for (const cur of currentAnalysis) {
     const curKey = signatureKeyComparable(cur, signatureAliasDictionary);
-    const w = getSignatureTagGroupWeight(cur, "retrieval", signatureWeightRules);
-    totalWeight += w;
+    const weight = getSignatureTagGroupWeight(cur, "retrieval", signatureWeightRules);
+    totalWeight += weight;
 
-    // 키 일치 여부 확인 (대소문자 무시)
-    const targetTags = target.signatures.filter(
-      t => signatureKeyComparable(t, signatureAliasDictionary).toLowerCase() === curKey.toLowerCase()
+    const targetTags = targetAnalysis.filter(
+      item => signatureKeyComparable(item, signatureAliasDictionary).toLowerCase() === curKey.toLowerCase()
     );
     if (targetTags.length === 0) continue;
+
     const targetTag = targetTags.reduce((best, item) =>
-      conceptAwareValueMatchScore(cur, item, signatureAliasDictionary) > conceptAwareValueMatchScore(cur, best, signatureAliasDictionary) ? item : best
+      conceptAwareValueMatchScore(cur, item, signatureAliasDictionary) >
+      conceptAwareValueMatchScore(cur, best, signatureAliasDictionary) ? item : best
     );
 
-    // 값 일치 여부 (부분 일치 포함)
-    const curVal = signatureValueComparable(cur, signatureAliasDictionary);
-    const tgtVal = signatureValueComparable(targetTag, signatureAliasDictionary);
+    const currentValue = signatureValueComparable(cur, signatureAliasDictionary);
+    const targetValue = signatureValueComparable(targetTag, signatureAliasDictionary);
 
-    if (curVal === tgtVal) {
-      matchScore += w; // 완전 일치
-    } else if (curVal.includes(tgtVal) || tgtVal.includes(curVal)) {
-      matchScore += w * 0.6; // 부분 일치
-    } else {
-      // 키만 일치 (값 불일치) — 부분 점수
-      matchScore += w * 0.1;
-    }
+    if (currentValue === targetValue) matchScore += weight;
+    else if (currentValue.includes(targetValue) || targetValue.includes(currentValue)) matchScore += weight * 0.6;
+    else matchScore += weight * 0.1;
   }
 
-  // target 기준으로 current에 없는 중요 키 패널티
-  for (const tgt of target.signatures) {
-    const tgtKey = signatureKeyComparable(tgt, signatureAliasDictionary);
-    const w = getSignatureTagGroupWeight(tgt, "retrieval", signatureWeightRules);
-    const hasKey = current.some(c => signatureKeyComparable(c, signatureAliasDictionary).toLowerCase() === tgtKey.toLowerCase());
-    if (!hasKey) {
-      totalWeight += w * 0.3; // 없는 키는 낮은 가중치로 분모에만 추가
-    }
+  for (const targetTag of targetAnalysis) {
+    const targetKey = signatureKeyComparable(targetTag, signatureAliasDictionary);
+    const weight = getSignatureTagGroupWeight(targetTag, "retrieval", signatureWeightRules);
+    const hasKey = currentAnalysis.some(item =>
+      signatureKeyComparable(item, signatureAliasDictionary).toLowerCase() === targetKey.toLowerCase()
+    );
+    if (!hasKey) totalWeight += weight * 0.3;
   }
 
   if (totalWeight === 0) return 0;
-  return Math.round((matchScore / totalWeight) * 100);
+  const baseScore = (matchScore / totalWeight) * 100;
+  const band = buildBandComparison(current, target, options);
+  return clampScore(baseScore + band.comparison.effect);
 }
 
-/**
- * 현재 Signature 배열에 대해 유사 사례를 찾아 유사도 순으로 반환합니다.
- * @param current 현재 이슈의 Signature 배열
- * @param threshold 최소 유사도 (기본 20%)
- * @param limit 최대 반환 개수 (기본 4)
- */
 export function findSimilarCases(
   current: SignatureTag[],
   threshold = 20,
@@ -101,10 +151,26 @@ export function findSimilarCases(
   signatureWeightRules?: SignatureWeightRule[],
   knowledgeCases: KnowledgeCase[] = [],
   signatureAliasDictionary?: SignatureAliasEntry[],
+  options?: SimilarityOptions,
 ): KnowledgeCase[] {
   return knowledgeCases
-    .map(kc => ({ ...kc, similarity: calcSimilarity(current, kc, signatureWeightRules, signatureAliasDictionary) }))
+    .map(kc => {
+      const band = buildBandComparison(current, kc, options);
+      return {
+        ...kc,
+        similarity: calcSimilarity(current, kc, signatureWeightRules, signatureAliasDictionary, options),
+        bandMatch: band.match,
+        bandComparison: band.comparison,
+      };
+    })
     .filter(kc => (kc.similarity ?? 0) >= threshold)
-    .sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0))
+    .sort((a, b) => {
+      const scoreDelta = (b.similarity ?? 0) - (a.similarity ?? 0);
+      if (scoreDelta !== 0) return scoreDelta;
+      if (a.bandMatch === b.bandMatch) return 0;
+      if (a.bandMatch === "same") return -1;
+      if (b.bandMatch === "same") return 1;
+      return 0;
+    })
     .slice(0, limit);
 }

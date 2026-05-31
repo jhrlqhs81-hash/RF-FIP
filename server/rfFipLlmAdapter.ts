@@ -223,6 +223,7 @@ function buildOpenAiInstructions(task: LlmTask): string {
     `Current task: ${task}.`,
     "Use rfKnowledgeContext as reference guidance only; measured user input and local evidence packets are the source of truth.",
     "Use context.retrievedKnowledgeContext snippets as provider-filtered reference guidance only.",
+    "Treat context.sharedAnalysisContext.signatures as analysis signatures and context.sharedAnalysisContext.metadataContext as RAT/Band/test-condition metadata, not root-cause signatures.",
     "When retrievedKnowledgeContext snippets influence the answer, return their wiki ids in usedWikiSourceIds.",
     "When confirmed Knowledge case excerpts influence the answer, return their ids in usedKnowledgeCaseSourceIds.",
     "Knowledge case excerpts are confirmed-case references only; they cannot create new measurements, new root causes, or evidence IDs.",

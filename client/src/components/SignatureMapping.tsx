@@ -2,11 +2,14 @@ import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import type { SignatureTag } from "@/lib/mockData";
 import { describeSignatureConcept } from "@/lib/signatureConceptRegistry";
+import { getSignatureTagGroup } from "@/lib/signatureTagGroups";
 import { cn } from "@/lib/utils";
+
+export type SignatureMappingTone = "mapped" | "partial" | "unmapped" | "metadata" | "narrative";
 
 export type SignatureMappingStatus = {
   label: string;
-  tone: "mapped" | "partial" | "unmapped";
+  tone: SignatureMappingTone;
   description: string;
   detail?: string;
   domain?: string;
@@ -17,12 +20,30 @@ export type SignatureMappingStatus = {
 };
 
 export function getSignatureMappingStatus(tag: SignatureTag): SignatureMappingStatus {
+  const group = getSignatureTagGroup(tag);
+  if (group === "metadata") {
+    return {
+      label: "메타데이터",
+      tone: "metadata",
+      description: "Band/RAT/열화량 같은 조건 정보입니다. 유사사례 필터와 LLM metadata context에는 쓰지만 원인 판단 Signature 미매핑 경고 대상은 아닙니다.",
+      engineUse: ["조건", "필터", "LLM metadata context"],
+    };
+  }
+  if (group === "narrative") {
+    return {
+      label: "RCA 속성",
+      tone: "narrative",
+      description: "RCA 설명, 분류 결과, 위험도 같은 서술 속성입니다. 분석 Signature와 분리해 표시하며 미매핑 경고 대상은 아닙니다.",
+      engineUse: ["RCA 설명", "분류 결과", "LLM context"],
+    };
+  }
+
   const concept = describeSignatureConcept(tag);
   if (!concept) {
     return {
       label: "미매핑",
       tone: "unmapped",
-      description: "표시/필터용으로 저장되며 분석, 유사사례, 누락 체크리스트 영향은 제한됩니다.",
+      description: "분석 Signature지만 Local Engine 계층 또는 alias에 연결되지 않았습니다. 표시/필터에는 사용할 수 있으나 분석, 유사사례, 누락 체크리스트 영향은 제한됩니다.",
       engineUse: ["표시", "필터"],
     };
   }
@@ -31,8 +52,8 @@ export function getSignatureMappingStatus(tag: SignatureTag): SignatureMappingSt
     return {
       label: "엔진 매핑됨",
       tone: "mapped",
-      description: "Local Engine 계층 signature로 해석됩니다.",
-      detail: `${concept.path} → ${concept.valueId}`,
+      description: "Local Engine 계층 signature로 해석합니다.",
+      detail: `${concept.path} > ${concept.valueId}`,
       domain: concept.domain,
       conceptId: concept.conceptId,
       valueId: concept.valueId,
@@ -44,13 +65,17 @@ export function getSignatureMappingStatus(tag: SignatureTag): SignatureMappingSt
   return {
     label: "Key만 매핑",
     tone: "partial",
-    description: "Key는 계층에 연결됐지만 value는 아직 canonical value/alias로 확인되지 않았습니다.",
+    description: "Key는 계층에 연결되었지만 value는 아직 canonical value 또는 alias로 확인되지 않았습니다.",
     detail: concept.path,
     domain: concept.domain,
     conceptId: concept.conceptId,
     path: concept.path,
     engineUse: ["Key 기반 검색", "부분 분석"],
   };
+}
+
+export function isAnalysisMappingRisk(status: SignatureMappingStatus): boolean {
+  return status.tone === "unmapped" || status.tone === "partial";
 }
 
 export function SignatureMappingBadge({ tag, className }: { tag: SignatureTag; className?: string }) {
@@ -62,6 +87,8 @@ export function SignatureMappingBadge({ tag, className }: { tag: SignatureTag; c
         status.tone === "mapped" && "border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-300",
         status.tone === "partial" && "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
         status.tone === "unmapped" && "border-border/60 bg-muted/40 text-muted-foreground",
+        status.tone === "metadata" && "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+        status.tone === "narrative" && "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300",
         className
       )}
       title={status.description}
@@ -82,9 +109,7 @@ export function SignatureMappingDetail({ tag, className }: { tag: SignatureTag; 
         <MappingField label="Value" value={status.valueId ?? "-"} />
         <MappingField label="Path" value={status.path ?? status.detail ?? "-"} />
       </div>
-      <p className="mt-2 leading-snug">
-        반영 범위: {status.engineUse.join(", ")}
-      </p>
+      <p className="mt-2 leading-snug">반영 범위: {status.engineUse.join(", ")}</p>
     </div>
   );
 }

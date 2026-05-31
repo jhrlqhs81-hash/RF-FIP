@@ -25,6 +25,10 @@
 - `key`
 - `value`
 - `isNew?`
+- Legacy-compatible `signatures` arrays can contain analysis signatures, metadata, and RCA narrative attributes.
+- Consumers must split them with `splitSignatureTags()` before analysis/search/UI warning logic.
+- Metadata keys: `RAT`, `Band`, `Degradation`, `Unit Scope`, `Tx Threshold`.
+- RCA attribute keys: `Mechanism`, `Desense Category`, `PIM Risk`.
 
 ## SignatureConcept
 

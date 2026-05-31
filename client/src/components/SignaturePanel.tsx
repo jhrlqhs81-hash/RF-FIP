@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus, Tag, Check, Pencil, Trash2, Sparkles, ChevronRight,
@@ -16,7 +16,8 @@ import {
   type SignatureWeightRule,
 } from "@/lib/signatureWeights";
 import { CaseDetailView, buildCaseDetailFromKnowledgeCase } from "@/components/CaseDetailView";
-import { getSignatureMappingStatus, SignatureMappingBadge, SignatureMappingDetail, SignatureMappingInspector } from "@/components/SignatureMapping";
+import { getSignatureMappingStatus, isAnalysisMappingRisk, SignatureMappingBadge, SignatureMappingDetail, SignatureMappingInspector } from "@/components/SignatureMapping";
+import { getSignatureTagGroup } from "@/lib/signatureTagGroups";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -98,7 +99,22 @@ function SimilarCaseCard({ kc, isTop, previewSigs }: {
             )}
           </div>
           <p className="text-xs font-medium text-foreground/90 leading-snug line-clamp-2">{kc.title}</p>
-          <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">{kc.model} · {kc.band}</p>
+          <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+            <p className="text-[10px] text-muted-foreground font-mono">{kc.model} · {kc.band}</p>
+            {kc.bandMatch === "same" && (
+              <span className="rounded border border-green-500/30 bg-green-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-green-700 dark:text-green-300">
+                동일 Band
+              </span>
+            )}
+            {kc.bandMatch === "different" && (
+              <span
+                className="rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700 dark:text-amber-300"
+                title={`${kc.bandComparison?.current ?? "-"} -> ${kc.bandComparison?.target ?? "-"}`}
+              >
+                Band 다름
+              </span>
+            )}
+          </div>
         </div>
 
         <ChevronRight className={cn(
@@ -215,6 +231,18 @@ interface SignaturePanelProps {
   signatures: SignatureTag[];
   issueStatus: IssueStatus;
   onUpdate: (sigs: SignatureTag[]) => void;
+}
+
+function SignatureGroup({ title, count, children }: { title: string; count: number; children: ReactNode }) {
+  return (
+    <section className="space-y-1.5">
+      <div className="flex items-center justify-between px-0.5">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
+        <span className="font-mono text-[10px] text-muted-foreground/60">{count}</span>
+      </div>
+      <div className="space-y-1">{children}</div>
+    </section>
+  );
 }
 
 function WeightInput({ value, onChange, title }: { value: number; onChange: (value: number) => void; title: string }) {
@@ -388,9 +416,9 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate }: SignatureP
     );
     onUpdate(next);
     const mapping = getSignatureMappingStatus({ key: editKey.trim(), value: editVal.trim() });
-    if (mapping.tone === "unmapped") {
+    if (mapping.tone === "unmapped" && isAnalysisMappingRisk(mapping)) {
       toast.warning("미매핑 Signature로 수정했습니다.", { description: "표시/필터에는 사용되지만 Local Engine 분석 영향은 제한됩니다." });
-    } else if (mapping.tone === "partial") {
+    } else if (mapping.tone === "partial" && isAnalysisMappingRisk(mapping)) {
       toast("Key만 매핑된 Signature로 수정했습니다.", { description: "Value는 canonical value/alias 승인 후 더 안정적으로 분석에 반영됩니다." });
     } else {
       toast.success('Signature 수정 완료');
@@ -428,9 +456,9 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate }: SignatureP
     if (exists) { toast.error(`'${addKey}' 키는 이미 존재합니다.`); return; }
     onUpdate([...signatures, { key: addKey.trim(), value: addVal.trim(), isNew: true }]);
     const mapping = getSignatureMappingStatus({ key: addKey.trim(), value: addVal.trim() });
-    if (mapping.tone === "unmapped") {
+    if (mapping.tone === "unmapped" && isAnalysisMappingRisk(mapping)) {
       toast.warning(`Signature 추가: ${addKey}`, { description: "미매핑 항목이라 Local Engine 분석 영향은 제한됩니다." });
-    } else if (mapping.tone === "partial") {
+    } else if (mapping.tone === "partial" && isAnalysisMappingRisk(mapping)) {
       toast(`Signature 추가: ${addKey}`, { description: "Key만 계층에 연결됐습니다. Value alias 승인을 검토하세요." });
     } else {
       toast.success(`Signature 추가: ${addKey}`);
@@ -456,6 +484,108 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate }: SignatureP
 
   const aiCount = signatures.filter(s => s.isNew).length;
   const manualCount = signatures.filter(s => !s.isNew).length;
+  const groupedEntries = useMemo(() => {
+    const entries = signatures.map((tag, index) => ({ tag, index, group: getSignatureTagGroup(tag) }));
+    return {
+      analysis: entries.filter(entry => entry.group === "analysis"),
+      metadata: entries.filter(entry => entry.group === "metadata"),
+      narrative: entries.filter(entry => entry.group === "narrative"),
+    };
+  }, [signatures]);
+
+  const renderSignatureEntries = (entries: typeof groupedEntries.analysis) => (
+    <AnimatePresence initial={false}>
+      {entries.map(({ tag, index: i }) => (
+        <motion.div
+          key={`${tag.key}-${i}`}
+          layout
+          initial={{ opacity: 0, y: -6, scale: 0.97 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, x: 20, scale: 0.95 }}
+          transition={{ duration: 0.18 }}
+          className="group rounded-lg overflow-hidden"
+          style={{
+            background: 'var(--rf-card-bg)',
+            border: editingIdx === i
+              ? '1px solid oklch(0.45 0.18 260)'
+              : tag.isNew
+              ? '1px solid var(--rf-green-border)'
+              : '1px solid var(--rf-card-border)',
+          }}
+        >
+          {editingIdx === i ? (
+            <div className="p-2 space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <span className="w-6 flex-shrink-0 text-right text-[10px] text-muted-foreground">Key</span>
+                <input
+                  className="flex-1 bg-transparent text-xs text-foreground/90 px-2 py-1 rounded outline-none font-mono"
+                  style={{ background: 'var(--input)', border: '1px solid var(--rf-blue-border)' }}
+                  value={editKey}
+                  onChange={e => setEditKey(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') editValRef.current?.focus(); if (e.key === 'Escape') cancelEdit(); }}
+                />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-6 flex-shrink-0 text-right text-[10px] text-muted-foreground">Value</span>
+                <input
+                  ref={editValRef}
+                  className="flex-1 bg-transparent text-xs text-foreground/90 px-2 py-1 rounded outline-none"
+                  style={{ background: 'var(--input)', border: '1px solid var(--rf-blue-border)' }}
+                  value={editVal}
+                  onChange={e => setEditVal(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') cancelEdit(); }}
+                />
+              </div>
+              {(editKey.trim() || editVal.trim()) && (
+                <div className="pl-7">
+                  <SignatureMappingDetail tag={{ key: editKey.trim(), value: editVal.trim() }} />
+                </div>
+              )}
+              <div className="flex items-center justify-end gap-1.5 pt-0.5">
+                <button onClick={cancelEdit} className="px-2 py-0.5 rounded text-[11px] text-muted-foreground hover:text-foreground transition-colors">취소</button>
+                <button
+                  onClick={commitEdit}
+                  disabled={!editKey.trim() || !editVal.trim()}
+                  className="flex items-center gap-1 px-2.5 py-0.5 rounded text-[11px] font-medium transition-all disabled:opacity-30 hover:opacity-90"
+                  style={{ background: 'var(--primary)', color: 'var(--primary-foreground)' }}
+                >
+                  <Check className="w-3 h-3" /> 저장
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 px-2.5 py-2">
+              {tag.isNew
+                ? <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" title="AI 추출" />
+                : <span className="w-1.5 h-1.5 rounded-full bg-blue-400/50 flex-shrink-0" title="수동 입력" />
+              }
+              <span className="text-[11px] text-muted-foreground font-mono flex-shrink-0 truncate" style={{ maxWidth: '44%' }} title={tag.key}>{tag.key}</span>
+              <span className="text-border/60 flex-shrink-0 text-[10px]">/</span>
+              <span className="text-[11px] text-foreground/90 font-medium flex-1 min-w-0 truncate" title={tag.value}>{tag.value}</span>
+              <SignatureMappingBadge tag={tag} className="flex-shrink-0" />
+              {!isLocked && (
+                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                  <button onClick={() => startEdit(i)}
+                    className="w-5 h-5 rounded flex items-center justify-center text-muted-foreground hover:text-blue-400 hover:bg-blue-400/10 transition-colors" title="편집">
+                    <Pencil className="w-3 h-3" />
+                  </button>
+                  <button onClick={() => deleteTag(i)}
+                    className="w-5 h-5 rounded flex items-center justify-center text-muted-foreground hover:text-rose-400 hover:bg-rose-400/10 transition-colors" title="삭제">
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {editingIdx !== i && (
+            <div className="border-t border-border/40 px-2.5 pb-2 pt-1.5">
+              <SignatureMappingInspector tag={tag} />
+            </div>
+          )}
+        </motion.div>
+      ))}
+    </AnimatePresence>
+  );
 
   return (
     <motion.div
@@ -578,7 +708,29 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate }: SignatureP
         </div>
 
         {/* Tag list */}
-        <div className="space-y-1">
+        <div className="space-y-3">
+          {groupedEntries.analysis.length > 0 && (
+            <SignatureGroup title="분석 Signature" count={groupedEntries.analysis.length}>
+              {renderSignatureEntries(groupedEntries.analysis)}
+            </SignatureGroup>
+          )}
+          {groupedEntries.metadata.length > 0 && (
+            <SignatureGroup title="메타데이터" count={groupedEntries.metadata.length}>
+              {renderSignatureEntries(groupedEntries.metadata)}
+            </SignatureGroup>
+          )}
+          {groupedEntries.narrative.length > 0 && (
+            <SignatureGroup title="RCA 속성" count={groupedEntries.narrative.length}>
+              {renderSignatureEntries(groupedEntries.narrative)}
+            </SignatureGroup>
+          )}
+          {signatures.length === 0 && (
+            <div className="text-center py-6 text-muted-foreground/40 text-xs">
+              <Tag className="w-5 h-5 mx-auto mb-1.5 opacity-30" />
+              Signature가 없습니다
+            </div>
+          )}
+          {/* legacy flat signature list removed
           <AnimatePresence initial={false}>
             {signatures.map((tag, i) => (
               <motion.div
@@ -676,6 +828,7 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate }: SignatureP
               Signature가 없습니다
             </div>
           )}
+          */}
         </div>
 
         {/* Legend */}

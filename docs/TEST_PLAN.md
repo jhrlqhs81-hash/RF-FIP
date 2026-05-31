@@ -23,7 +23,8 @@
 - RF hardcode consolidation: shared intent, shared core extraction, client/server local fallback parity
 - Local Engine reply: chat reply output must stay aligned with the single generated evidence packet
 - Local Engine golden corpus: Korean/English/abbreviation RF inputs extract expected signatures and retain rule priority for BackGlass, conducted/OTA, internal noise, and CA/PIM cases
-- Classification/similarity cleanup: taxonomy uses shared triage baseline, and Knowledge DB similarity uses concept comparison plus Signature weight rules
+- Classification/similarity cleanup: taxonomy uses shared triage baseline, Knowledge DB similarity uses analysis signatures plus Signature weight rules, and Band mismatch remains visible with a penalty/badge instead of hard exclusion
+- Signature mapping audit: RAT/Band/Degradation/Unit Scope/Tx Threshold classify as metadata, Mechanism/Desense Category/PIM Risk classify as RCA attributes, and only analysis-signature mapping gaps require review
 - Data/parser ownership cleanup: similarity requires caller-supplied Knowledge cases, seed data lives in `knowledgeSeedCases.ts`, and Import parser profile owns field/header heuristics
 - Product slimming: chat rendering has no mock-id demo table, Similar Case detail modal remains, and unreachable inline expanded detail is removed
 - Architecture boundary: Import candidate domain logic lives in `importCandidateAnalyzer.ts`, while `Home.tsx` only orchestrates Import file selection and state updates
@@ -42,6 +43,7 @@ Smoke checks must use `RF_FIP_DB_DIR=.rf-fip-db/smoke-*`.
 - Knowledge DB detail shows used materials.
 - Signature Dictionary filters Knowledge DB.
 - Signature tab can edit Signature weight rules and weighted similarity/missing checklist behavior remains stable.
+- Signature tab and Knowledge DB detail split tags into `분석 Signature`, `메타데이터`, and `RCA 속성`; metadata/RCA attributes do not show as unmapped analysis warnings.
 - Data/parser ownership cleanup browser retry: Issue create, Chat send, Similar cases, Knowledge DB, and Import original modal must be click-checked when Browser control is available.
 
 ## Harness Checks

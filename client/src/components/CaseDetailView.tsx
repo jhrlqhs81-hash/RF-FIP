@@ -16,6 +16,7 @@ import { KnowledgeCase } from "@/lib/similarCasesDb";
 import { ChatAttachment, Issue, SignatureTag, SummaryItem } from "@/lib/mockData";
 import { classifyDesenseCase } from "@/lib/rfDesenseTaxonomy";
 import { SignatureMappingInspector } from "@/components/SignatureMapping";
+import { splitSignatureTags } from "@/lib/signatureTagGroups";
 
 function textOf(item: SummaryItem): string {
   return typeof item === "string" ? item : item.text;
@@ -30,6 +31,28 @@ function DetailCard({ title, icon, children }: { title: string; icon: ReactNode;
       </p>
       {children}
     </section>
+  );
+}
+
+function SignatureGroupView({ title, signatures }: { title: string; signatures: SignatureTag[] }) {
+  if (signatures.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
+        <span className="font-mono text-[10px] text-muted-foreground/60">{signatures.length}</span>
+      </div>
+      <div className="grid gap-2 md:grid-cols-2">
+        {signatures.map((sig, index) => (
+          <div key={`${title}-${sig.key}-${sig.value}-${index}`} className="rounded-lg border border-border/60 p-2" style={{ background: "var(--panel-surface)" }}>
+            <div className="mb-1 flex flex-wrap items-center gap-1.5">
+              <span className={sig.isNew ? "sig-tag-new" : "sig-tag"}>{sig.key}: {sig.value}</span>
+            </div>
+            <SignatureMappingInspector tag={sig} />
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -253,6 +276,7 @@ export function CaseDetailView({ data, editable = false }: { data: CaseDetailDat
   const lessons = Array.isArray(data.lessonsLearned) ? data.lessonsLearned : [data.lessonsLearned];
   const materials = data.usedMaterials ?? [];
   const [selectedMaterial, setSelectedMaterial] = useState<ChatAttachment | null>(null);
+  const signatureGroups = splitSignatureTags(data.signatures);
 
   return (
     <div className="space-y-4">
@@ -343,15 +367,10 @@ export function CaseDetailView({ data, editable = false }: { data: CaseDetailDat
       </DetailCard>
 
       <DetailCard title="Signature" icon={<Tag className="h-3.5 w-3.5 text-primary" />}>
-        <div className="grid gap-2 md:grid-cols-2">
-          {data.signatures.map((sig, index) => (
-            <div key={`${sig.key}-${sig.value}-${index}`} className="rounded-lg border border-border/60 p-2" style={{ background: "var(--panel-surface)" }}>
-              <div className="mb-1 flex flex-wrap items-center gap-1.5">
-                <span className={sig.isNew ? "sig-tag-new" : "sig-tag"}>{sig.key}: {sig.value}</span>
-              </div>
-              <SignatureMappingInspector tag={sig} />
-            </div>
-          ))}
+        <div className="space-y-4">
+          <SignatureGroupView title="분석 Signature" signatures={signatureGroups.analysisSignatures} />
+          <SignatureGroupView title="메타데이터" signatures={signatureGroups.metadataTags} />
+          <SignatureGroupView title="RCA 속성" signatures={signatureGroups.narrativeTags} />
         </div>
       </DetailCard>
 

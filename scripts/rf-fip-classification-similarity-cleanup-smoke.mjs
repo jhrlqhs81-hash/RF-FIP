@@ -79,4 +79,53 @@ const weightedScore = similar.calcSimilarity(
 );
 assert(weightedScore === 100, `Custom retrieval weight should preserve exact-match scoring; got ${weightedScore}.`);
 
+const bandAwareCases = [
+  {
+    id: "KB-SAME-BAND",
+    title: "B3 shield can contact",
+    model: "TEST",
+    band: "B3",
+    status: "confirmed",
+    confirmedRootCause: "Shield can contact issue",
+    mitigation: "Adjust contact",
+    signatures: [
+      { key: "Band", value: "B3" },
+      { key: "Contact Structure", value: "Shield Can" },
+      { key: "Contact Type", value: "Shield Can" },
+    ],
+  },
+  {
+    id: "KB-DIFFERENT-BAND",
+    title: "B7 shield can contact",
+    model: "TEST",
+    band: "B7",
+    status: "confirmed",
+    confirmedRootCause: "Shield can contact issue",
+    mitigation: "Adjust contact",
+    signatures: [
+      { key: "Band", value: "B7" },
+      { key: "Contact Structure", value: "Shield Can" },
+      { key: "Contact Type", value: "Shield Can" },
+    ],
+  },
+];
+
+const bandAwareResults = similar.findSimilarCases(
+  [
+    { key: "Band", value: "B3" },
+    { key: "Contact Structure", value: "Shield Can" },
+    { key: "Contact Type", value: "Shield Can" },
+  ],
+  15,
+  2,
+  undefined,
+  bandAwareCases,
+);
+assert(bandAwareResults.some(item => item.id === "KB-DIFFERENT-BAND"), "Band mismatch case should not be excluded when analysis signatures match.");
+assert(bandAwareResults[0].id === "KB-SAME-BAND", "Same-band case should rank ahead of band mismatch case.");
+assert(
+  bandAwareResults.find(item => item.id === "KB-DIFFERENT-BAND")?.bandMatch === "different",
+  "Band mismatch metadata should be returned for UI badge.",
+);
+
 console.log("RF-FIP classification/similarity cleanup smoke passed.");

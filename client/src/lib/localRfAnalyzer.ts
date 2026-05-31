@@ -15,6 +15,7 @@ import {
   type SignatureRelationHint,
 } from "./signatureConceptRegistry";
 import { getSignatureGroupWeight, getSignatureTagGroupWeight, type SignatureWeightRule } from "./signatureWeights";
+import { splitSignatureTags } from "./signatureTagGroups";
 
 export interface LocalEvidenceItem {
   id: string;
@@ -139,17 +140,19 @@ export function buildLocalEvidencePacket(input: {
 }): LocalEvidencePacket {
   const extractedTags = extractRfSignatures(input.text, input.signatureAliasDictionary);
   const merged = mergeSignatures(input.existingSignatures, extractedTags, input.signatureAliasDictionary);
+  const signatureGroups = splitSignatureTags(merged);
+  const extractedGroups = splitSignatureTags(extractedTags);
   const insight = classifyDesenseCase(merged, input.text);
-  const missing = buildWeightedMissingInfo(merged, input.text, input.signatureWeightRules);
+  const missing = buildWeightedMissingInfo(signatureGroups.analysisSignatures, input.text, input.signatureWeightRules);
   const pendingAliasCandidates = findPendingAliasCandidates(input.text, 0.72, input.signatureAliasDictionary);
-  const conceptRelationHints = buildSignatureRelationHints(merged);
+  const conceptRelationHints = buildSignatureRelationHints(signatureGroups.analysisSignatures);
   const similarCases = findSimilarCases(merged, 20, 3, input.signatureWeightRules, input.knowledgeCases).map(item => ({
     id: item.id,
     title: item.title,
     similarity: item.similarity ?? 0,
   }));
   const evidence: LocalEvidenceItem[] = [
-    ...extractedTags.map((tag, index) => ({
+    ...extractedGroups.analysisSignatures.map((tag, index) => ({
       id: `sig-${index + 1}`,
       type: "signature" as const,
       label: `${tag.key}=${tag.value}`,
