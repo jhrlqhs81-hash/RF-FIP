@@ -26,6 +26,29 @@
 - `value`
 - `isNew?`
 
+## SignatureConcept
+
+- Internal Local Engine registry only; persisted issues and Knowledge DB still store `SignatureTag`.
+- `id`: hierarchical concept id, e.g. `mechanical.contact_structure`
+- `parentId`
+- `domain`: `rf | mechanical | test | source | workflow`
+- `displayKey`: canonical key shown to users
+- `keyAliases`
+- `valueType`: `enum | boolean | number | text`
+- `values`: canonical values and approved aliases
+- `relations`: `requires | boosts | conflicts | coOccurs | blocksConclusion`
+
+## SignatureAliasEntry
+
+- `canonicalKey`, `canonicalValue`
+- `aliases`: approved or pending raw terms mapped to the canonical signature
+- `domain`: `rf | mechanical | test | source | workflow`
+- `status`: `approved | pending`
+- `source`: `builtin | user-approved | imported`
+- `confidence`
+- `conceptId?`, `valueId?`
+- Only `approved` entries are allowed to canonicalize input automatically.
+
 ## SignatureWeightRule
 
 - `id`
@@ -58,5 +81,5 @@
 ## Storage
 
 - Runtime store is SQLite at `.rf-fip-db/rf-fip.sqlite` or `RF_FIP_DB_DIR/rf-fip.sqlite`.
-- Collections are persisted as JSON payload rows for `issues`, `knowledgeCases`, `signatureDictionary`, `signatureWeightRules`, and `importResults`.
+- Collections are persisted as JSON payload rows for `issues`, `knowledgeCases`, `signatureDictionary`, `signatureAliasDictionary`, `signatureWeightRules`, and `importResults`.
 - A legacy `.rf-fip-db/rf-fip.json` file may be migrated once when the SQLite store is empty.

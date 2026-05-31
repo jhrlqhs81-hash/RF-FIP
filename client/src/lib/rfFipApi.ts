@@ -1,4 +1,5 @@
-import type { ChatAttachment, Issue, SignatureTag } from "./mockData";
+import type { Issue, SignatureTag } from "./mockData";
+import type { SignatureAliasEntry } from "./signatureAliasResolver";
 import type { KnowledgeCase } from "./similarCasesDb";
 import type { SignatureWeightRule } from "./signatureWeights";
 
@@ -16,6 +17,7 @@ export interface RfFipDbSnapshot {
   issues: Issue[];
   knowledgeCases: KnowledgeCase[];
   signatureDictionary: SignatureTag[];
+  signatureAliasDictionary: SignatureAliasEntry[];
   signatureWeightRules: SignatureWeightRule[];
   importResults: ImportApprovalRecord[];
   persistenceAvailable?: boolean;
@@ -33,6 +35,20 @@ export interface RfFipLlmResponse {
   task: RfFipLlmTask;
   result: Record<string, unknown>;
   blocked?: boolean;
+}
+
+export interface RagOpsReport {
+  verdict: "PASS" | "WARN" | "FAIL";
+  generatedAt: string;
+  today: string;
+  counts: {
+    publicWikiDocuments: number;
+    knowledgeCaseExcerpts: number;
+    openAiProbeSnippets: number;
+  };
+  warnings: string[];
+  errors: string[];
+  nextActions: string[];
 }
 
 class PersistenceApiUnavailableError extends Error {
@@ -58,6 +74,7 @@ const EMPTY_SNAPSHOT: RfFipDbSnapshot = {
   issues: [],
   knowledgeCases: [],
   signatureDictionary: [],
+  signatureAliasDictionary: [],
   signatureWeightRules: [],
   importResults: [],
   persistenceAvailable: false,
@@ -96,15 +113,16 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 export async function loadRfFipDb(): Promise<RfFipDbSnapshot> {
   try {
     await requestJson<{ ok: true }>("/api/health");
-    const [issues, knowledgeCases, signatureDictionary, signatureWeightRules, importResults] = await Promise.all([
+    const [issues, knowledgeCases, signatureDictionary, signatureAliasDictionary, signatureWeightRules, importResults] = await Promise.all([
       requestJson<{ items: Issue[] }>("/api/issues").then((payload) => payload.items),
       requestJson<{ items: KnowledgeCase[] }>("/api/knowledge-cases").then((payload) => payload.items),
       requestJson<{ items: SignatureTag[] }>("/api/signature-dictionary").then((payload) => payload.items),
+      requestJson<{ items: SignatureAliasEntry[] }>("/api/signature-aliases").then((payload) => payload.items),
       requestJson<{ items: SignatureWeightRule[] }>("/api/signature-weight-rules").then((payload) => payload.items),
       requestJson<{ items: ImportApprovalRecord[] }>("/api/import-results").then((payload) => payload.items),
     ]);
 
-    return { issues, knowledgeCases, signatureDictionary, signatureWeightRules, importResults, persistenceAvailable: true };
+    return { issues, knowledgeCases, signatureDictionary, signatureAliasDictionary, signatureWeightRules, importResults, persistenceAvailable: true };
   } catch (error) {
     if (error instanceof PersistenceApiUnavailableError || error instanceof TypeError) {
       console.info("RF-FIP persistence API is unavailable; using bundled mock data for this session.");
@@ -154,6 +172,14 @@ export async function saveSignatureDictionary(items: SignatureTag[]): Promise<Si
   return payload.items;
 }
 
+export async function saveSignatureAliases(items: SignatureAliasEntry[]): Promise<SignatureAliasEntry[]> {
+  const payload = await requestJson<{ items: SignatureAliasEntry[] }>("/api/signature-aliases", {
+    method: "PUT",
+    body: JSON.stringify({ items }),
+  });
+  return payload.items;
+}
+
 export async function saveSignatureWeightRules(items: SignatureWeightRule[]): Promise<SignatureWeightRule[]> {
   const payload = await requestJson<{ items: SignatureWeightRule[] }>("/api/signature-weight-rules", {
     method: "PUT",
@@ -177,10 +203,9 @@ export async function runRfFipLlm(task: RfFipLlmTask, payload: Record<string, un
   });
 }
 
-export function persistableAttachment(attachment: ChatAttachment): ChatAttachment {
-  if (attachment.url?.startsWith("blob:")) {
-    const { url: _url, ...rest } = attachment;
-    return rest;
-  }
-  return attachment;
+export async function loadRagOpsReport(): Promise<RagOpsReport> {
+  const payload = await requestJson<{ report: RagOpsReport }>("/api/rag/ops-report");
+  return payload.report;
 }
+
+export { persistableAttachment } from "./attachmentPersistence";

@@ -2,19 +2,21 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus, Tag, Check, Pencil, Trash2, Sparkles, ChevronRight,
-  SearchCode, ArrowRight, Zap, TrendingUp, CheckCircle2,
-  AlertCircle, Clock, MessageSquare, X, SlidersHorizontal, RotateCcw, Save
+  SearchCode, ArrowRight, CheckCircle2,
+  Clock, X, SlidersHorizontal, RotateCcw, Save
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SignatureTag, IssueStatus } from "@/lib/mockData";
 import { KnowledgeCase, findSimilarCases } from "@/lib/similarCasesDb";
-import { RF_DESENSE_TAXONOMY, classifyDesenseCase } from "@/lib/rfDesenseTaxonomy";
+import { RF_DESENSE_TAXONOMY } from "@/lib/rfDesenseTaxonomy";
+import type { SignatureAliasEntry } from "@/lib/signatureAliasResolver";
 import {
   DEFAULT_SIGNATURE_WEIGHT_RULES,
   mergeSignatureWeightRules,
   type SignatureWeightRule,
 } from "@/lib/signatureWeights";
 import { CaseDetailView, buildCaseDetailFromKnowledgeCase } from "@/components/CaseDetailView";
+import { getSignatureMappingStatus, SignatureMappingBadge, SignatureMappingDetail, SignatureMappingInspector } from "@/components/SignatureMapping";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -22,16 +24,13 @@ import { cn } from "@/lib/utils";
 const SIG_TAXONOMY = RF_DESENSE_TAXONOMY;
 
 // ─── SimilarCaseCard ──────────────────────────────────────────────
-function SimilarCaseCard({ kc, isTop, previewSigs, onQuoteToChat }: {
+function SimilarCaseCard({ kc, isTop, previewSigs }: {
   kc: KnowledgeCase;
   isTop: boolean;
   previewSigs: SignatureTag[];
-  onQuoteToChat?: (text: string, source: string) => void;
 }) {
   const [modalOpen, setModalOpen] = useState(false);
-  const expanded = false;
   const sim = kc.similarity ?? 0;
-  const insight = classifyDesenseCase(kc.signatures, `${kc.title} ${kc.confirmedRootCause}`);
 
   // 일치하는 키 하이라이트
   const matchedKeys = previewSigs
@@ -103,8 +102,7 @@ function SimilarCaseCard({ kc, isTop, previewSigs, onQuoteToChat }: {
         </div>
 
         <ChevronRight className={cn(
-          "w-3.5 h-3.5 text-muted-foreground flex-shrink-0 mt-1 transition-transform duration-150",
-          expanded && "rotate-90"
+          "w-3.5 h-3.5 text-muted-foreground flex-shrink-0 mt-1 transition-transform duration-150"
         )} />
       </button>
 
@@ -125,101 +123,6 @@ function SimilarCaseCard({ kc, isTop, previewSigs, onQuoteToChat }: {
         </div>
       )}
 
-      {/* Expanded detail */}
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
-          >
-            <div className="px-2.5 pb-3 space-y-2 border-t border-border/40 pt-2">
-              {/* Root Cause */}
-              <div>
-                <p className="text-[10px] text-muted-foreground mb-0.5 flex items-center gap-1">
-                  <Zap className="w-3 h-3 text-amber-400" /> Root Cause
-                </p>
-                <p className="text-[11px] text-foreground/80 leading-snug">{kc.confirmedRootCause}</p>
-              </div>
-              {/* Mitigation */}
-              <div>
-                <p className="text-[10px] text-muted-foreground mb-0.5 flex items-center gap-1">
-                  <TrendingUp className="w-3 h-3 text-emerald-400" /> Mitigation
-                </p>
-                <p className="text-[11px] text-foreground/80 leading-snug">{kc.mitigation}</p>
-              </div>
-              <div className="grid grid-cols-1 gap-2">
-                <div className="rounded-md border border-border/50 p-2" style={{ background: 'var(--panel-surface-2)' }}>
-                  <p className="text-[10px] text-muted-foreground mb-0.5">원인 분류</p>
-                  <p className="text-[11px] leading-snug" style={{ color: 'var(--rf-blue-fg)' }}>{insight.category}</p>
-                </div>
-                <div className="rounded-md border border-border/50 p-2" style={{ background: 'var(--panel-surface-2)' }}>
-                  <p className="text-[10px] text-muted-foreground mb-0.5">권장 판별 시험</p>
-                  <ul className="space-y-0.5">
-                    {insight.diagnosticTests.slice(0, 3).map((test, idx) => (
-                      <li key={idx} className="text-[11px] text-foreground/75 leading-snug">• {test}</li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-              {/* All signatures */}
-              <div>
-                <p className="text-[10px] text-muted-foreground mb-1">Signature 비교</p>
-                <div className="space-y-0.5">
-                  {kc.signatures.map((t, i) => {
-                    const curMatch = previewSigs.find(s => s.key.toLowerCase() === t.key.toLowerCase());
-                    const isMatch = !!curMatch;
-                    const isValueMatch = curMatch?.value.toLowerCase() === t.value.toLowerCase();
-                    return (
-                      <div key={i} className={cn(
-                        "flex items-center gap-1.5 px-1.5 py-0.5 rounded text-[10px]",
-                        isMatch && isValueMatch
-                          ? "bg-emerald-500/10"
-                          : isMatch
-                          ? "bg-amber-500/10"
-                          : "opacity-40"
-                      )}>
-                        {isMatch && isValueMatch
-                          ? <Check className="w-2.5 h-2.5 text-emerald-400 flex-shrink-0" />
-                          : isMatch
-                          ? <AlertCircle className="w-2.5 h-2.5 text-amber-400 flex-shrink-0" />
-                          : <span className="w-2.5 h-2.5 flex-shrink-0" />
-                        }
-                        <span className="text-muted-foreground font-mono">{t.key}:</span>
-                        <span
-                          className={!isMatch ? 'text-foreground/50' : undefined}
-                          style={isMatch ? { color: isValueMatch ? 'var(--rf-green-fg)' : 'var(--rf-amber-fg)' } : undefined}
-                        >
-                          {t.value}
-                        </span>
-                        {isMatch && !isValueMatch && curMatch && (
-                          <span className="text-muted-foreground/50 ml-auto">현재: {curMatch.value}</span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Quote button — 유사 사례 인용 */}
-              {onQuoteToChat && (
-                <button
-                  onClick={() => onQuoteToChat(
-                    `[유사 사례 ${kc.id}] ${kc.title}\n원인 분류: ${insight.category}\nRoot Cause: ${kc.confirmedRootCause}\n판별 시험: ${insight.diagnosticTests.slice(0, 2).join(' / ')}\nMitigation: ${kc.mitigation}`,
-                    `유사 사례 DB (${kc.id})`
-                  )}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium w-full justify-center transition-all hover:scale-[0.98] mt-1"
-                  style={{ background: 'var(--rf-amber-bg)', color: 'var(--rf-amber-fg)', border: '1px solid var(--rf-amber-border)' }}
-                >
-                  <MessageSquare className="w-3 h-3" /> 이 사례 채팅에 인용
-                </button>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
       <AnimatePresence>
         {modalOpen && (
           <motion.div
@@ -254,14 +157,15 @@ function SimilarCaseCard({ kc, isTop, previewSigs, onQuoteToChat }: {
 }
 
 // ─── SimilarCasesPanel ────────────────────────────────────────────
-export function SimilarCasesPanel({ signatures, previewSigs = [], signatureWeightRules, onQuoteToChat }: {
+export function SimilarCasesPanel({ signatures, knowledgeCases, signatureAliasDictionary, previewSigs = [], signatureWeightRules }: {
   signatures: SignatureTag[];
+  knowledgeCases: KnowledgeCase[];
+  signatureAliasDictionary?: SignatureAliasEntry[];
   previewSigs?: SignatureTag[];
   signatureWeightRules?: SignatureWeightRule[];
-  onQuoteToChat?: (text: string, source: string) => void;
 }) {
   const sigsToSearch = previewSigs.length > 0 ? previewSigs : signatures;
-  const cases = useMemo(() => findSimilarCases(sigsToSearch, 15, 4, signatureWeightRules), [sigsToSearch, signatureWeightRules]);
+  const cases = useMemo(() => findSimilarCases(sigsToSearch, 15, 4, signatureWeightRules, knowledgeCases, signatureAliasDictionary), [sigsToSearch, signatureWeightRules, knowledgeCases, signatureAliasDictionary]);
   const isPreview = previewSigs.length > 0;
 
   if (sigsToSearch.length === 0) return null;
@@ -298,7 +202,6 @@ export function SimilarCasesPanel({ signatures, previewSigs = [], signatureWeigh
               kc={kc}
               isTop={i === 0 && (kc.similarity ?? 0) >= 50}
               previewSigs={sigsToSearch}
-              onQuoteToChat={onQuoteToChat}
             />
           ))}
         </AnimatePresence>
@@ -312,7 +215,6 @@ interface SignaturePanelProps {
   signatures: SignatureTag[];
   issueStatus: IssueStatus;
   onUpdate: (sigs: SignatureTag[]) => void;
-  onQuoteToChat?: (text: string, source: string) => void;
 }
 
 function WeightInput({ value, onChange, title }: { value: number; onChange: (value: number) => void; title: string }) {
@@ -432,7 +334,7 @@ export function SignatureWeightSettings({
   );
 }
 
-export function SignaturePanel({ signatures, issueStatus, onUpdate, onQuoteToChat }: SignaturePanelProps) {
+export function SignaturePanel({ signatures, issueStatus, onUpdate }: SignaturePanelProps) {
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editKey, setEditKey] = useState('');
   const [editVal, setEditVal] = useState('');
@@ -485,7 +387,14 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate, onQuoteToCha
       i === editingIdx ? { ...s, key: editKey.trim(), value: editVal.trim(), isNew: false } : s
     );
     onUpdate(next);
-    toast.success('Signature 수정 완료');
+    const mapping = getSignatureMappingStatus({ key: editKey.trim(), value: editVal.trim() });
+    if (mapping.tone === "unmapped") {
+      toast.warning("미매핑 Signature로 수정했습니다.", { description: "표시/필터에는 사용되지만 Local Engine 분석 영향은 제한됩니다." });
+    } else if (mapping.tone === "partial") {
+      toast("Key만 매핑된 Signature로 수정했습니다.", { description: "Value는 canonical value/alias 승인 후 더 안정적으로 분석에 반영됩니다." });
+    } else {
+      toast.success('Signature 수정 완료');
+    }
     cancelEdit();
   };
 
@@ -518,7 +427,14 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate, onQuoteToCha
     const exists = signatures.some(s => s.key.toLowerCase() === addKey.trim().toLowerCase());
     if (exists) { toast.error(`'${addKey}' 키는 이미 존재합니다.`); return; }
     onUpdate([...signatures, { key: addKey.trim(), value: addVal.trim(), isNew: true }]);
-    toast.success(`Signature 추가: ${addKey}`);
+    const mapping = getSignatureMappingStatus({ key: addKey.trim(), value: addVal.trim() });
+    if (mapping.tone === "unmapped") {
+      toast.warning(`Signature 추가: ${addKey}`, { description: "미매핑 항목이라 Local Engine 분석 영향은 제한됩니다." });
+    } else if (mapping.tone === "partial") {
+      toast(`Signature 추가: ${addKey}`, { description: "Key만 계층에 연결됐습니다. Value alias 승인을 검토하세요." });
+    } else {
+      toast.success(`Signature 추가: ${addKey}`);
+    }
     setAddKey(''); setAddVal(''); setKeySearch(''); setAddOpen(false);
     setPreviewSigs([]);
   };
@@ -606,6 +522,12 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate, onQuoteToCha
                       onChange={e => setAddVal(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') commitAdd(); if (e.key === 'Escape') setAddOpen(false); }}
                     />
+                    {(addKey.trim() || addVal.trim()) && (
+                      <div className="space-y-1.5">
+                        <SignatureMappingBadge tag={{ key: addKey.trim(), value: addVal.trim() }} />
+                        <SignatureMappingDetail tag={{ key: addKey.trim(), value: addVal.trim() }} />
+                      </div>
+                    )}
                     <button
                       onClick={commitAdd}
                       disabled={!addKey.trim() || !addVal.trim()}
@@ -699,6 +621,11 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate, onQuoteToCha
                         onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') cancelEdit(); }}
                       />
                     </div>
+                    {(editKey.trim() || editVal.trim()) && (
+                      <div className="pl-7">
+                        <SignatureMappingDetail tag={{ key: editKey.trim(), value: editVal.trim() }} />
+                      </div>
+                    )}
                     <div className="flex items-center justify-end gap-1.5 pt-0.5">
                       <button onClick={cancelEdit} className="px-2 py-0.5 rounded text-[11px] text-muted-foreground hover:text-foreground transition-colors">취소</button>
                       <button
@@ -720,6 +647,7 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate, onQuoteToCha
                     <span className="text-[11px] text-muted-foreground font-mono flex-shrink-0 truncate" style={{ maxWidth: '44%' }} title={tag.key}>{tag.key}</span>
                     <span className="text-border/60 flex-shrink-0 text-[10px]">/</span>
                     <span className="text-[11px] text-foreground/90 font-medium flex-1 min-w-0 truncate" title={tag.value}>{tag.value}</span>
+                    <SignatureMappingBadge tag={tag} className="flex-shrink-0" />
                     {!isLocked && (
                       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
                         <button onClick={() => startEdit(i)}
@@ -732,6 +660,11 @@ export function SignaturePanel({ signatures, issueStatus, onUpdate, onQuoteToCha
                         </button>
                       </div>
                     )}
+                  </div>
+                )}
+                {editingIdx !== i && (
+                  <div className="border-t border-border/40 px-2.5 pb-2 pt-1.5">
+                    <SignatureMappingInspector tag={tag} />
                   </div>
                 )}
               </motion.div>

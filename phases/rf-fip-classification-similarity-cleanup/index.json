@@ -1,0 +1,29 @@
+{
+  "project": "RF Failure Intelligence Platform UX",
+  "phase": "rf-fip-classification-similarity-cleanup",
+  "goal": "Reduce duplicated RF classification and similarity hardcoding by routing taxonomy decisions through shared triage, signature concepts, and signature weight rules.",
+  "status": "completed",
+  "steps": [
+    {
+      "step": 1,
+      "name": "taxonomy-shared-triage",
+      "status": "completed",
+      "verdict": "PASS",
+      "summary": "classifyDesenseCase now uses shared triage as its baseline and concept-aware signature checks before falling back to legacy text clues."
+    },
+    {
+      "step": 2,
+      "name": "similarity-weight-consolidation",
+      "status": "completed",
+      "verdict": "PASS",
+      "summary": "Similarity scoring now uses signature concept comparison and signature weight rules instead of a second RF key-weight table and legacy value regex normalization."
+    },
+    {
+      "step": 3,
+      "name": "verification-and-record",
+      "status": "completed",
+      "verdict": "PASS",
+      "summary": "Added cleanup smoke coverage and updated test/docs/phase records."
+    }
+  ]
+}

@@ -5,5 +5,7 @@
 - Local RF analyzer must be deterministic.
 - Gauss calls must remain server-owned, not client-owned.
 - Preserve SignatureTag key/value shape.
+- Signature concept/alias changes must keep approved aliases deterministic and must not auto-canonicalize pending near-matches.
+- Do not value-only canonicalize generic values such as `True`, `False`, `Normal`, `Fail`, or `Check required`; require a matching key/context for those values.
 - Use `Array.from(value.matchAll(...))` before iteration; direct `for...of` over RegExp iterators fails under the current TypeScript target.
 - Initial persistence load may fall back to bundled mock data when `/api/health` is unavailable, but real API/DB errors must still surface.

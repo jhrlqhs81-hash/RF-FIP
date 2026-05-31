@@ -1,0 +1,36 @@
+{
+  "project": "RF Failure Intelligence Platform UX",
+  "phase": "rf-fip-hardcode-consolidation",
+  "goal": "Consolidate RF keyword and extraction hardcoding that is shared by client and server while preserving deterministic Local Engine behavior.",
+  "status": "completed",
+  "steps": [
+    {
+      "step": 1,
+      "name": "hardcode-inventory",
+      "status": "completed",
+      "verdict": "PASS_WITH_RISK",
+      "summary": "Documented which RF hardcoded conditions are acceptable and which should be moved or consolidated."
+    },
+    {
+      "step": 2,
+      "name": "shared-rule-catalog",
+      "status": "completed",
+      "verdict": "PASS",
+      "summary": "Added a shared deterministic RF rule catalog for intent detection, core signature extraction, and local fallback classification."
+    },
+    {
+      "step": 3,
+      "name": "client-server-consumers",
+      "status": "completed",
+      "verdict": "PASS",
+      "summary": "Connected Home intent routing, client Local Engine extraction, and server local LLM fallback to the shared RF rule catalog."
+    },
+    {
+      "step": 4,
+      "name": "verification-and-record",
+      "status": "completed",
+      "verdict": "PASS_WITH_RISK",
+      "summary": "Hardcode consolidation smoke, concept/alias/LLM/evidence smokes, TypeScript, Vite build, server bundle, Harness policy, and whitespace checks passed. Residual risk remains in taxonomy regex and seed Knowledge DB hardcoding."
+    }
+  ]
+}

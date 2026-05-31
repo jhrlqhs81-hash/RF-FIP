@@ -1,7 +1,7 @@
 import { ChatAttachment, SignatureTag } from "./mockData";
-import { RF_DESENSE_KEY_WEIGHTS } from "./rfDesenseTaxonomy";
-import { normalizeSignatureComparable, normalizeSignatureKeyComparable } from "./signatureAliasResolver";
-import { getSignatureGroupWeight, type SignatureWeightRule } from "./signatureWeights";
+import { canonicalizeSignatureTag, type SignatureAliasEntry } from "./signatureAliasResolver";
+import { signatureConceptComparable } from "./signatureConceptRegistry";
+import { getSignatureTagGroupWeight, type SignatureWeightRule } from "./signatureWeights";
 
 // ─── Knowledge DB (Confirmed RCA 사례) ───────────────────────────
 export interface KnowledgeCase {
@@ -22,311 +22,47 @@ export interface KnowledgeCase {
   similarity?: number; // 0~100, 계산 후 주입
 }
 
-export const KNOWLEDGE_DB: KnowledgeCase[] = [
-  {
-    id: 'KB-2023-012',
-    title: 'B3 PIM — Shield Clip 접촉력 저하',
-    model: 'MODEL-A PVT',
-    band: 'LTE B3',
-    status: 'confirmed',
-    confirmedRootCause: 'Shield Clip 변형 → 접촉력 저하 → MIM 접합 → IM3 발생',
-    mitigation: 'Shield Clip Spring Force 20% 증가 (설계 변경)',
-    symptomPattern: 'Tx power 20 dBm 이상에서 B3 DL 감도 저하, Back Cover 압력 인가 시 noise floor 변동',
-    diagnosticTests: ['Tx power sweep', 'IM3 주파수와 B3 DL channel 겹침 계산', 'Shield Clip 압력/재조립 A/B test'],
-    suspectedStructures: ['Shield Clip', 'Shield Can 모서리', 'Back Cover GND contact'],
-    lessonsLearned: 'PIM 사례는 접촉 구조와 Tx 조건을 함께 저장해야 재발 시 빠르게 좁힐 수 있음',
-    decisionRationale: ['Tx 의존성 확인', '압력 민감도 확인', 'IM3 계산값이 Rx 대역과 일치'],
-    signatures: [
-      { key: 'RAT', value: 'LTE' },
-      { key: 'Band', value: 'B3' },
-      { key: 'Desense Category', value: 'TX-induced PIM Desense' },
-      { key: 'Mechanism', value: 'Contact nonlinearity IM3' },
-      { key: 'Diagnostic Gate', value: 'Tx power sweep + pressure A/B' },
-      { key: 'Tx Dependency', value: 'High power only' },
-      { key: 'PIM Risk', value: 'High' },
-      { key: 'Contact Structure', value: 'Shield Clip' },
-      { key: 'IM Product', value: 'IM3 overlaps B3 DL' },
-      { key: 'Tx Correlated', value: 'True' },
-      { key: 'Pressure Sensitive', value: 'True' },
-      { key: 'Contact Type', value: 'Shield Clip' },
-      { key: 'IM Order', value: 'IM3' },
-      { key: 'Reassembly Effect', value: 'Disappears' },
-    ],
-  },
-  {
-    id: 'KB-2023-019',
-    title: 'B3 Desense — Display MIPI Harmonic',
-    model: 'MODEL-B DVT2',
-    band: 'LTE B3',
-    status: 'confirmed',
-    confirmedRootCause: 'Display MIPI Clock 고조파 → B3 DL 대역 침범',
-    mitigation: 'MIPI Routing GND 강화 + Shield Tape 적용',
-    symptomPattern: 'Display ON 조건에서만 특정 channel spur성 감도 저하 재현',
-    diagnosticTests: ['Display ON/OFF 감도 비교', 'MIPI clock harmonic 계산', 'FPC 임시 shielding A/B test'],
-    suspectedStructures: ['Display FPC', 'MIPI route', 'Panel GND return path'],
-    lessonsLearned: '기능 ON/OFF와 clock harmonic 계산을 같이 남겨야 internal desense 재현 조건을 보존할 수 있음',
-    decisionRationale: ['Display ON과 재현 조건 일치', 'MIPI harmonic이 DL channel 근처', 'Tx 독립 확인 필요'],
-    signatures: [
-      { key: 'RAT', value: 'LTE' },
-      { key: 'Band', value: 'B3' },
-      { key: 'Desense Category', value: 'Internal Desense / Spurious' },
-      { key: 'Mechanism', value: 'MIPI harmonic coupling' },
-      { key: 'Diagnostic Gate', value: 'Display ON/OFF + harmonic scan' },
-      { key: 'Tx Dependency', value: 'Tx independent' },
-      { key: 'Spur Source', value: 'Display MIPI' },
-      { key: 'Harmonic Source', value: 'MIPI Clock' },
-      { key: 'Tx Correlated', value: 'False' },
-      { key: 'Trigger', value: 'Display ON' },
-      { key: 'Desense Type', value: 'Narrow Spur' },
-      { key: 'Contact Type', value: 'FPC' },
-    ],
-  },
-  {
-    id: 'KB-2023-031',
-    title: 'n78 PIM — Spring Contact 피로',
-    model: 'MODEL-C EVT1',
-    band: 'NR n78',
-    status: 'confirmed',
-    confirmedRootCause: 'Spring Contact 스프링 피로 → 접촉 저항 증가 → PIM',
-    mitigation: 'Spring Contact 재설계 (접촉력 30% 증가)',
-    symptomPattern: '일부 단말에서만 n78 고출력 조건 PIM성 감도 저하',
-    diagnosticTests: ['2-tone PIM test', 'Spring compression sweep', '재조립 전후 감도 비교'],
-    suspectedStructures: ['Spring Contact', 'Antenna feed GND', 'FPCB ground contact'],
-    lessonsLearned: '샘플 산포가 큰 PIM은 contact force와 unit scope를 signature로 남겨야 함',
-    decisionRationale: ['Minority unit scope', '재조립 효과', '접촉력 저하와 IM3 조건 동시 확인'],
-    signatures: [
-      { key: 'RAT', value: 'NR' },
-      { key: 'Band', value: 'n78' },
-      { key: 'Desense Category', value: 'PIM/접촉 비선형' },
-      { key: 'Mechanism', value: 'Spring contact fatigue' },
-      { key: 'Diagnostic Gate', value: '2-tone PIM + compression sweep' },
-      { key: 'PIM Risk', value: 'High' },
-      { key: 'Contact Structure', value: 'Spring Contact' },
-      { key: 'Tx Correlated', value: 'True' },
-      { key: 'Unit Scope', value: 'Minority' },
-      { key: 'Contact Type', value: 'Spring Contact' },
-      { key: 'Reassembly Effect', value: 'Disappears' },
-      { key: 'IM Order', value: 'IM3' },
-    ],
-  },
-  {
-    id: 'KB-2023-044',
-    title: 'B7 Harmonic Desense — CA B3+B7',
-    model: 'MODEL-A MP',
-    band: 'LTE B7',
-    status: 'confirmed',
-    confirmedRootCause: 'B3 UL 3차 Harmonic → B7 DL 대역 직접 침범',
-    mitigation: 'B3 PA 출력단 LPF 추가',
-    symptomPattern: 'CA B3+B7 조합에서 B7 DL 특정 channel만 감도 저하',
-    diagnosticTests: ['CA 조합별 channel sweep', 'Harmonic 주파수 계산', 'PA output spectrum과 Rx band 동시 관찰'],
-    suspectedStructures: ['PA output', 'LPF', 'duplexer/filter isolation'],
-    lessonsLearned: 'CA 조합과 harmonic/IM product를 저장해야 band만 같은 사례보다 정확히 검색됨',
-    decisionRationale: ['CA 조합 의존', 'B3 UL harmonic이 B7 DL에 근접', 'LPF 추가 후 개선'],
-    signatures: [
-      { key: 'RAT', value: 'LTE' },
-      { key: 'Band', value: 'B7' },
-      { key: 'Desense Category', value: 'TX-induced Desense' },
-      { key: 'Mechanism', value: 'PA harmonic overlap' },
-      { key: 'Diagnostic Gate', value: 'CA channel sweep + spectrum scan' },
-      { key: 'Tx Dependency', value: 'CA high power' },
-      { key: 'IM Product', value: 'Harmonic overlaps B7 DL' },
-      { key: 'CA Combo', value: 'B3+B7' },
-      { key: 'Tx Correlated', value: 'True' },
-      { key: 'IM Order', value: 'Harmonic' },
-      { key: 'Desense Type', value: 'Tx Correlated' },
-    ],
-  },
-  {
-    id: 'KB-2024-003',
-    title: 'B3 Desense — Grounding Strap 부식',
-    model: 'MODEL-D DVT1',
-    band: 'LTE B3',
-    status: 'confirmed',
-    confirmedRootCause: 'Grounding Strap 부식 → GND 임피던스 상승 → PIM',
-    mitigation: 'Grounding Strap 재료 변경 (Gold Plating 적용)',
-    symptomPattern: 'THB 이후 B3 Tx 조건에서만 감도 저하, strap 표면 부식 확인',
-    diagnosticTests: ['THB 전후 비교', 'strap cleaning/replacement A/B test', 'GND impedance와 Rx sensitivity 상관 확인'],
-    suspectedStructures: ['Grounding Strap', 'GND contact', '도금/산화 접촉부'],
-    lessonsLearned: '환경 stress 이력과 surface condition이 PIM 재발 가능성을 크게 좌우함',
-    decisionRationale: ['THB 이력', '표면 부식', 'GND 임피던스 상승과 PIM 단서 일치'],
-    signatures: [
-      { key: 'RAT', value: 'LTE' },
-      { key: 'Band', value: 'B3' },
-      { key: 'Desense Category', value: 'PIM/접촉 비선형' },
-      { key: 'Mechanism', value: 'Corroded GND contact nonlinearity' },
-      { key: 'Diagnostic Gate', value: 'THB A/B + cleaning test' },
-      { key: 'PIM Risk', value: 'High' },
-      { key: 'Contact Structure', value: 'Grounding Strap' },
-      { key: 'Tx Correlated', value: 'True' },
-      { key: 'Contact Type', value: 'Grounding Strap' },
-      { key: 'Surface Condition', value: 'Corroded' },
-      { key: 'THB History', value: 'True' },
-      { key: 'Temporal Pattern', value: 'After THB' },
-    ],
-  },
-  {
-    id: 'KB-2024-009',
-    title: 'B28 PIM — Drop 후 발생 (Antenna Feed)',
-    model: 'MODEL-B PVT',
-    band: 'LTE B28',
-    status: 'confirmed',
-    confirmedRootCause: 'Drop 충격 → Antenna Feed Point 납땜 크랙 → PIM',
-    mitigation: 'Antenna Feed Point 보강 납땜 + 충격 흡수 패드 추가',
-    symptomPattern: '낙하 후 OTA 조건에서 악화, feed point 압력에 따라 감도 변동',
-    diagnosticTests: ['Drop 전후 TIS/EIS 비교', 'Conducted vs OTA 분리', 'Antenna feed 압력/현미경 검사'],
-    suspectedStructures: ['Antenna Feed', '납땜부', '충격 전달 구조'],
-    lessonsLearned: 'Drop 후 OTA fail은 antenna path와 접촉 비선형을 동시에 봐야 함',
-    decisionRationale: ['Drop 직후 발생', '압력 민감도', 'Antenna feed crack 확인'],
-    signatures: [
-      { key: 'RAT', value: 'LTE' },
-      { key: 'Band', value: 'B28' },
-      { key: 'Desense Category', value: '기구/조립 산포 + PIM' },
-      { key: 'Mechanism', value: 'Drop-induced antenna feed crack' },
-      { key: 'Diagnostic Gate', value: 'Drop A/B + conducted/OTA split' },
-      { key: 'OTA Result', value: 'Fail after drop' },
-      { key: 'Conducted Result', value: 'Check required' },
-      { key: 'PIM Risk', value: 'High' },
-      { key: 'Antenna Path', value: 'Antenna Feed' },
-      { key: 'Mechanical Stress', value: 'Drop' },
-      { key: 'Tx Correlated', value: 'True' },
-      { key: 'Contact Type', value: 'Antenna Feed' },
-      { key: 'Drop History', value: 'True' },
-      { key: 'Onset Condition', value: 'After Drop' },
-      { key: 'Pressure Sensitive', value: 'True' },
-    ],
-  },
-  {
-    id: 'KB-2024-015',
-    title: 'n41 Desense — PMIC 노이즈 (Broadband)',
-    model: 'MODEL-C DVT2',
-    band: 'NR n41',
-    status: 'validated',
-    confirmedRootCause: 'PMIC DC-DC 스위칭 노이즈 → n41 Rx 대역 Broadband 상승',
-    mitigation: 'PMIC Spread Spectrum 활성화 + 전원 라인 필터 추가',
-    symptomPattern: 'AP high load 또는 thermal 조건에서 broadband noise floor 상승',
-    diagnosticTests: ['AP load/thermal sweep', 'PMIC spread spectrum ON/OFF', '전원 rail near-field scan'],
-    suspectedStructures: ['PMIC', 'DCDC inductor', 'power rail filter'],
-    lessonsLearned: 'Broadband desense는 기능 상태와 전원 설정을 signature로 남겨야 함',
-    decisionRationale: ['Tx 독립', 'AP high load trigger', 'PMIC 설정 변경 후 개선'],
-    signatures: [
-      { key: 'RAT', value: 'NR' },
-      { key: 'Band', value: 'n41' },
-      { key: 'Desense Category', value: 'Internal Desense' },
-      { key: 'Mechanism', value: 'PMIC/DCDC broadband noise' },
-      { key: 'Diagnostic Gate', value: 'AP load + PMIC setting A/B' },
-      { key: 'Tx Dependency', value: 'Tx independent' },
-      { key: 'Noise Source', value: 'PMIC/DCDC' },
-      { key: 'Thermal Sensitive', value: 'True' },
-      { key: 'Tx Correlated', value: 'False' },
-      { key: 'Desense Type', value: 'Broadband Noise' },
-      { key: 'Thermal Dependent', value: 'True' },
-      { key: 'Trigger', value: 'AP High Load' },
-    ],
-  },
-  {
-    id: 'KB-2024-021',
-    title: 'B1 PIM — Fabric-over-Foam 노화',
-    model: 'MODEL-A DVT1',
-    band: 'LTE B1',
-    status: 'confirmed',
-    confirmedRootCause: 'Fabric-over-Foam 접촉 산화 → 접촉 저항 증가 → PIM',
-    mitigation: 'Fabric-over-Foam 재료 교체 (산화 방지 코팅)',
-    symptomPattern: '시간 경과/THB 이후 B1 Tx 조건 감도 저하가 점진적으로 증가',
-    diagnosticTests: ['THB/aging 전후 비교', 'FoF 교체 A/B test', '표면 산화 상태와 PIM level 상관 확인'],
-    suspectedStructures: ['Fabric-over-Foam', 'GND 접촉부', '산화 방지 코팅'],
-    lessonsLearned: 'Aging성 PIM은 temporal pattern과 surface condition을 함께 저장해야 함',
-    decisionRationale: ['점진적 발생 패턴', 'THB 이력', '산화 접촉부와 PIM 증상 일치'],
-    signatures: [
-      { key: 'RAT', value: 'LTE' },
-      { key: 'Band', value: 'B1' },
-      { key: 'Desense Category', value: 'PIM/접촉 비선형' },
-      { key: 'Mechanism', value: 'Oxidized foam contact nonlinearity' },
-      { key: 'Diagnostic Gate', value: 'Aging/THB A/B + replacement test' },
-      { key: 'PIM Risk', value: 'Medium-High' },
-      { key: 'Contact Structure', value: 'Fabric-over-Foam' },
-      { key: 'Tx Correlated', value: 'True' },
-      { key: 'Contact Type', value: 'Fabric-over-Foam' },
-      { key: 'THB History', value: 'True' },
-      { key: 'Surface Condition', value: 'Oxidized' },
-      { key: 'Temporal Pattern', value: 'Gradual' },
-    ],
-  },
-];
-
-// ─── Similarity calculation ───────────────────────────────────────
-/**
- * 현재 이슈의 Signature 배열과 Knowledge DB 사례의 유사도를 계산합니다.
- * 키 일치 + 값 일치 여부를 가중치로 계산합니다.
- */
-function normalizeSignatureValue(value: string): string {
-  const normalized = normalizeSignatureComparable(value);
-  if (/desense|sensitivity drop|sensitivity loss|감도 저하|수신 감도/.test(normalized)) return "sensitivity drop";
-  if (/shield can|shield-can|차폐 캔|쉴드 캔|shield contact/.test(normalized)) return "shield can";
-  if (/contact force|pressure|압력|접촉 압|가압/.test(normalized)) return "pressure sensitive";
-  if (/reassembly|re-assembly|재 조립|재조립/.test(normalized)) return "reassembly";
-  if (/conducted|rf cable|전도|케이블/.test(normalized)) return "conducted";
-  if (/ota|tis|eis|chamber|방사|챔버/.test(normalized)) return "ota";
-  return normalized;
+function signatureKeyComparable(tag: SignatureTag, signatureAliasDictionary?: SignatureAliasEntry[]): string {
+  return signatureConceptComparable(canonicalizeSignatureTag(tag, signatureAliasDictionary)).key;
 }
 
-function valueMatchScore(currentValue: string, targetValue: string): number {
-  const curVal = normalizeSignatureValue(currentValue);
-  const tgtVal = normalizeSignatureValue(targetValue);
+function signatureValueComparable(tag: SignatureTag, signatureAliasDictionary?: SignatureAliasEntry[]): string {
+  return signatureConceptComparable(canonicalizeSignatureTag(tag, signatureAliasDictionary)).value;
+}
+
+function conceptAwareValueMatchScore(current: SignatureTag, target: SignatureTag, signatureAliasDictionary?: SignatureAliasEntry[]): number {
+  const curVal = signatureValueComparable(current, signatureAliasDictionary);
+  const tgtVal = signatureValueComparable(target, signatureAliasDictionary);
   if (curVal === tgtVal) return 1;
   if (curVal.includes(tgtVal) || tgtVal.includes(curVal)) return 0.6;
   return 0.1;
 }
 
-export function calcSimilarity(current: SignatureTag[], target: KnowledgeCase, signatureWeightRules?: SignatureWeightRule[]): number {
+export function calcSimilarity(current: SignatureTag[], target: KnowledgeCase, signatureWeightRules?: SignatureWeightRule[], signatureAliasDictionary?: SignatureAliasEntry[]): number {
   if (current.length === 0) return 0;
 
   let matchScore = 0;
   let totalWeight = 0;
 
-  // 키 가중치 (중요도 순)
-  const KEY_WEIGHTS: Record<string, number> = {
-    'RAT': 3,
-    'Band': 4,
-    'Band DL': 4,
-    'Band UL': 3,
-    'Tx Correlated': 5,
-    'Contact Type': 5,
-    'IM Order': 4,
-    'Desense Type': 4,
-    'Pressure Sensitive': 4,
-    'Reassembly Effect': 4,
-    'Unit Scope': 3,
-    'Drop History': 3,
-    'Onset Condition': 3,
-    'CA Combo': 3,
-    'Trigger': 3,
-    'Surface Condition': 3,
-    'THB History': 2,
-    'Thermal Dependent': 2,
-    ...RF_DESENSE_KEY_WEIGHTS,
-  };
-
-  const DEFAULT_WEIGHT = 1;
 
   // current 기준으로 target과 매칭
   for (const cur of current) {
-    const curKey = normalizeSignatureKeyComparable(cur.key);
-    const configuredWeight = getSignatureGroupWeight(cur.key, "retrieval", signatureWeightRules);
-    const w = signatureWeightRules ? configuredWeight : KEY_WEIGHTS[cur.key] ?? KEY_WEIGHTS[curKey] ?? DEFAULT_WEIGHT;
+    const curKey = signatureKeyComparable(cur, signatureAliasDictionary);
+    const w = getSignatureTagGroupWeight(cur, "retrieval", signatureWeightRules);
     totalWeight += w;
 
     // 키 일치 여부 확인 (대소문자 무시)
     const targetTags = target.signatures.filter(
-      t => normalizeSignatureKeyComparable(t.key).toLowerCase() === curKey.toLowerCase()
+      t => signatureKeyComparable(t, signatureAliasDictionary).toLowerCase() === curKey.toLowerCase()
     );
     if (targetTags.length === 0) continue;
     const targetTag = targetTags.reduce((best, item) =>
-      valueMatchScore(cur.value, item.value) > valueMatchScore(cur.value, best.value) ? item : best
+      conceptAwareValueMatchScore(cur, item, signatureAliasDictionary) > conceptAwareValueMatchScore(cur, best, signatureAliasDictionary) ? item : best
     );
 
     // 값 일치 여부 (부분 일치 포함)
-    const curVal = normalizeSignatureValue(cur.value);
-    const tgtVal = normalizeSignatureValue(targetTag.value);
+    const curVal = signatureValueComparable(cur, signatureAliasDictionary);
+    const tgtVal = signatureValueComparable(targetTag, signatureAliasDictionary);
 
     if (curVal === tgtVal) {
       matchScore += w; // 완전 일치
@@ -340,10 +76,9 @@ export function calcSimilarity(current: SignatureTag[], target: KnowledgeCase, s
 
   // target 기준으로 current에 없는 중요 키 패널티
   for (const tgt of target.signatures) {
-    const tgtKey = normalizeSignatureKeyComparable(tgt.key);
-    const configuredWeight = getSignatureGroupWeight(tgt.key, "retrieval", signatureWeightRules);
-    const w = signatureWeightRules ? configuredWeight : KEY_WEIGHTS[tgt.key] ?? KEY_WEIGHTS[tgtKey] ?? DEFAULT_WEIGHT;
-    const hasKey = current.some(c => normalizeSignatureKeyComparable(c.key).toLowerCase() === tgtKey.toLowerCase());
+    const tgtKey = signatureKeyComparable(tgt, signatureAliasDictionary);
+    const w = getSignatureTagGroupWeight(tgt, "retrieval", signatureWeightRules);
+    const hasKey = current.some(c => signatureKeyComparable(c, signatureAliasDictionary).toLowerCase() === tgtKey.toLowerCase());
     if (!hasKey) {
       totalWeight += w * 0.3; // 없는 키는 낮은 가중치로 분모에만 추가
     }
@@ -364,9 +99,11 @@ export function findSimilarCases(
   threshold = 20,
   limit = 4,
   signatureWeightRules?: SignatureWeightRule[],
+  knowledgeCases: KnowledgeCase[] = [],
+  signatureAliasDictionary?: SignatureAliasEntry[],
 ): KnowledgeCase[] {
-  return KNOWLEDGE_DB
-    .map(kc => ({ ...kc, similarity: calcSimilarity(current, kc, signatureWeightRules) }))
+  return knowledgeCases
+    .map(kc => ({ ...kc, similarity: calcSimilarity(current, kc, signatureWeightRules, signatureAliasDictionary) }))
     .filter(kc => (kc.similarity ?? 0) >= threshold)
     .sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0))
     .slice(0, limit);

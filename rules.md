@@ -7,3 +7,4 @@
 - If `AGENTS.md` or `CLAUDE.md` exceeds 70 lines, split scope into child directories.
 - On failure or warning, update the nearest applicable `rules.md` with a short enforceable rule.
 - Completion requires `docs/TEST_PLAN.md` and `docs/REGRESSION_CHECKLIST.md` evidence.
+- For bulk mechanical rewrites, prefer a checked script that reads and writes UTF-8 explicitly; if the command string fails before execution, simplify and rerun before touching files.

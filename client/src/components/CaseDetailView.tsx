@@ -15,6 +15,7 @@ import { useState, type ReactNode } from "react";
 import { KnowledgeCase } from "@/lib/similarCasesDb";
 import { ChatAttachment, Issue, SignatureTag, SummaryItem } from "@/lib/mockData";
 import { classifyDesenseCase } from "@/lib/rfDesenseTaxonomy";
+import { SignatureMappingInspector } from "@/components/SignatureMapping";
 
 function textOf(item: SummaryItem): string {
   return typeof item === "string" ? item : item.text;
@@ -342,11 +343,14 @@ export function CaseDetailView({ data, editable = false }: { data: CaseDetailDat
       </DetailCard>
 
       <DetailCard title="Signature" icon={<Tag className="h-3.5 w-3.5 text-primary" />}>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="grid gap-2 md:grid-cols-2">
           {data.signatures.map((sig, index) => (
-            <span key={`${sig.key}-${sig.value}-${index}`} className={sig.isNew ? "sig-tag-new" : "sig-tag"}>
-              {sig.key}: {sig.value}
-            </span>
+            <div key={`${sig.key}-${sig.value}-${index}`} className="rounded-lg border border-border/60 p-2" style={{ background: "var(--panel-surface)" }}>
+              <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                <span className={sig.isNew ? "sig-tag-new" : "sig-tag"}>{sig.key}: {sig.value}</span>
+              </div>
+              <SignatureMappingInspector tag={sig} />
+            </div>
           ))}
         </div>
       </DetailCard>

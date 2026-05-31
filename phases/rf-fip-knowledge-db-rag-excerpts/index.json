@@ -1,0 +1,15 @@
+{
+  "project": "RF Failure Intelligence Platform UX",
+  "phase": "rf-fip-knowledge-db-rag-excerpts",
+  "goal": "Add confirmed Knowledge DB case excerpts as deterministic internal-only RAG references without exposing them to OpenAI.",
+  "status": "completed",
+  "steps": [
+    {
+      "step": 1,
+      "name": "confirmed-knowledge-case-rag-excerpts",
+      "status": "completed",
+      "verdict": "PASS_WITH_RISK",
+      "summary": "Persisted confirmed Knowledge cases now generate internal-only RAG excerpts for local/Gauss retrieval, with validated cases and OpenAI excluded."
+    }
+  ]
+}

@@ -20,6 +20,19 @@ interface PersistedSignatureWeightRule {
   updatedAt: string;
 }
 
+interface PersistedSignatureAliasEntry {
+  id?: string;
+  canonicalKey: string;
+  canonicalValue: string;
+  aliases: string[];
+  domain: "rf" | "mechanical" | "test" | "source" | "workflow";
+  status?: "approved" | "pending";
+  confidence?: number;
+  source?: "builtin" | "user-approved" | "imported";
+  conceptId?: string;
+  valueId?: string;
+}
+
 interface PersistedAttachment {
   id: string;
   type: "image" | "table" | "url" | "file";
@@ -76,6 +89,7 @@ interface RfFipDb {
   issues: PersistedIssue[];
   knowledgeCases: PersistedKnowledgeCase[];
   signatureDictionary: PersistedSignature[];
+  signatureAliasDictionary: PersistedSignatureAliasEntry[];
   signatureWeightRules: PersistedSignatureWeightRule[];
   importResults: PersistedImportResult[];
 }
@@ -84,11 +98,12 @@ const EMPTY_DB: RfFipDb = {
   issues: [],
   knowledgeCases: [],
   signatureDictionary: [],
+  signatureAliasDictionary: [],
   signatureWeightRules: [],
   importResults: [],
 };
 
-const COLLECTION_NAMES = ["issues", "knowledgeCases", "signatureDictionary", "signatureWeightRules", "importResults"] as const;
+const COLLECTION_NAMES = ["issues", "knowledgeCases", "signatureDictionary", "signatureAliasDictionary", "signatureWeightRules", "importResults"] as const;
 type CollectionName = typeof COLLECTION_NAMES[number];
 
 const dbDir = process.env.RF_FIP_DB_DIR
@@ -116,6 +131,7 @@ function parseLegacyJson(): RfFipDb | null {
       issues: Array.isArray(parsed.issues) ? parsed.issues : [],
       knowledgeCases: Array.isArray(parsed.knowledgeCases) ? parsed.knowledgeCases : [],
       signatureDictionary: Array.isArray(parsed.signatureDictionary) ? parsed.signatureDictionary : [],
+      signatureAliasDictionary: Array.isArray(parsed.signatureAliasDictionary) ? parsed.signatureAliasDictionary : [],
       signatureWeightRules: Array.isArray(parsed.signatureWeightRules) ? parsed.signatureWeightRules : [],
       importResults: Array.isArray(parsed.importResults) ? parsed.importResults : [],
     };
@@ -190,6 +206,7 @@ export function getRfFipDbSnapshot(): RfFipDb {
     issues: readCollection<PersistedIssue>("issues"),
     knowledgeCases: readCollection<PersistedKnowledgeCase>("knowledgeCases"),
     signatureDictionary: readCollection<PersistedSignature>("signatureDictionary"),
+    signatureAliasDictionary: readCollection<PersistedSignatureAliasEntry>("signatureAliasDictionary"),
     signatureWeightRules: readCollection<PersistedSignatureWeightRule>("signatureWeightRules"),
     importResults: readCollection<PersistedImportResult>("importResults"),
   };
@@ -226,6 +243,10 @@ export function replaceKnowledgeCases(items: PersistedKnowledgeCase[]) {
 
 export function replaceSignatureDictionary(items: PersistedSignature[]) {
   return writeCollection("signatureDictionary", items);
+}
+
+export function replaceSignatureAliasDictionary(items: PersistedSignatureAliasEntry[]) {
+  return writeCollection("signatureAliasDictionary", items);
 }
 
 export function replaceSignatureWeightRules(items: PersistedSignatureWeightRule[]) {

@@ -108,6 +108,20 @@ try {
     method: "PUT",
     body: JSON.stringify({ items: [{ key: "structure", value: "Shield Clip" }] }),
   });
+  await request("/api/signature-aliases", {
+    method: "PUT",
+    body: JSON.stringify({
+      items: [{
+        canonicalKey: "Contact Structure",
+        canonicalValue: "Shield Can",
+        aliases: ["shield box"],
+        domain: "mechanical",
+        status: "approved",
+        confidence: 0.9,
+        source: "user-approved",
+      }],
+    }),
+  });
   await request("/api/import-results", {
     method: "POST",
     body: JSON.stringify({
@@ -128,10 +142,12 @@ try {
   const issues = await request("/api/issues");
   const cases = await request("/api/knowledge-cases");
   const dictionary = await request("/api/signature-dictionary");
+  const aliases = await request("/api/signature-aliases");
   const imports = await request("/api/import-results");
   assert(issues.items?.some((item) => item.id === issue.id), "Issue was not persisted across restart.");
   assert(cases.items?.some((item) => item.id === knowledgeCase.id), "Knowledge case was not persisted across restart.");
   assert(dictionary.items?.[0]?.value === "Shield Clip", "Signature dictionary was not persisted across restart.");
+  assert(aliases.items?.[0]?.aliases?.[0] === "shield box", "Signature alias dictionary was not persisted across restart.");
   assert(imports.items?.some((item) => item.id === "sqlite-import-1"), "Import result was not persisted across restart.");
   assert(fs.existsSync(path.join(dbDir, "rf-fip.sqlite")), "SQLite file was not created.");
 

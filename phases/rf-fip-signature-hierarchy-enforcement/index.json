@@ -1,0 +1,22 @@
+{
+  "project": "RF Failure Intelligence Platform UX",
+  "phase": "rf-fip-signature-hierarchy-enforcement",
+  "goal": "Use Signature concept hierarchy and simplified value ids in weights, LLM context, and similarity without changing persisted SignatureTag shape.",
+  "status": "completed",
+  "steps": [
+    {
+      "step": 1,
+      "name": "concept-key-value-runtime",
+      "status": "completed",
+      "verdict": "PASS",
+      "summary": "Added concept key matching, concept path metadata, tag-aware weights, and concept metadata in weighted LLM context."
+    },
+    {
+      "step": 2,
+      "name": "verification-and-record",
+      "status": "completed",
+      "verdict": "PASS_WITH_RISK",
+      "summary": "Added hierarchy smoke and docs; persisted SignatureTag remains flat by design for compatibility."
+    }
+  ]
+}

@@ -35,8 +35,7 @@ Run focused smoke and policy checks for local engine performance changes, and re
 
 ## Verdict
 
-- Status: blocked
-- Verdict: NOT_VERIFIED
-- Evidence run: `git diff --check`, `node scripts/harness-policy-check.mjs`
-- Evidence blocked: `tsc --noEmit`, Vite build, `rf-fip-local-engine-performance-smoke.mjs`
-- Blocker: Codex usage-limit gate rejected required node_modules escalation.
+- Status: completed
+- Verdict: PASS
+- Evidence: local engine performance smoke, evidence packet smoke, TypeScript check, Vite build, server bundle, Harness policy check, and whitespace checks passed after escalation was available.
+- Note: Earlier sandbox `EPERM` and usage-limit blocking were superseded by the later successful verification run.

@@ -31,6 +31,7 @@ User input -> React UI -> client/src/lib/rfFipApi.ts
 - `Home.tsx` owns current page workflow state.
 - Shared display logic belongs in `components/`.
 - API wrappers belong in `client/src/lib/`.
+- Import candidate analysis, duplicate scoring, evidence packet creation, and source-material tracing belong in `client/src/lib/importCandidateAnalyzer.ts`; `Home.tsx` should only orchestrate file selection and state updates.
 
 ## Build Boundary
 

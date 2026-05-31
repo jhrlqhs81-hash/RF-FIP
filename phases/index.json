@@ -10,7 +10,67 @@
     },
     {
       "dir": "rf-fip-local-engine-performance",
-      "status": "implemented_needs_verification"
+      "status": "completed"
+    },
+    {
+      "dir": "rf-fip-signature-concept-ontology",
+      "status": "completed"
+    },
+    {
+      "dir": "rf-fip-hardcode-consolidation",
+      "status": "completed"
+    },
+    {
+      "dir": "rf-fip-classification-similarity-cleanup",
+      "status": "completed"
+    },
+    {
+      "dir": "rf-fip-data-parser-ownership-cleanup",
+      "status": "completed"
+    },
+    {
+      "dir": "rf-fip-signature-alias-dictionary-enrichment",
+      "status": "completed"
+    },
+    {
+      "dir": "rf-fip-product-slimming",
+      "status": "completed"
+    },
+    {
+      "dir": "rf-fip-architecture-boundary-cleanup",
+      "status": "completed"
+    },
+    {
+      "dir": "rf-fip-signature-hierarchy-enforcement",
+      "status": "completed"
+    },
+    {
+      "dir": "rf-fip-rag-contract-integration",
+      "status": "completed"
+    },
+    {
+      "dir": "rf-fip-rag-maintenance-governance",
+      "status": "completed"
+    },
+    {
+      "dir": "rf-fip-public-rf-wiki-expansion",
+      "status": "completed"
+    },
+    {
+      "dir": "rf-fip-knowledge-db-rag-excerpts",
+      "status": "completed"
+    },
+    {
+      "dir": "rf-fip-local-engine-golden-corpus",
+      "status": "completed"
+    },
+    {
+      "dir": "rf-fip-rag-ops-automation",
+      "status": "completed"
+    },
+    {
+      "dir": "rf-fip-rag-ops-ui",
+      "status": "completed"
     }
   ]
 }

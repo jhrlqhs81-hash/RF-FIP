@@ -7,8 +7,12 @@ const source = readFileSync(resolve(root, "server", "rfFipLlmAdapter.ts"), "utf8
 
 const requiredNeedles = [
   "rfKnowledgeContext",
+  "retrievedKnowledgeContext",
+  "usedWikiSourceIds",
+  "usedKnowledgeCaseSourceIds",
   "existingSignatureGuard",
   "Return only signatures",
+  "Knowledge case excerpts are confirmed-case references only",
   "context.sharedAnalysisContext.signatures",
   "Do not invent measurements",
   "enforceSignatureDedupe",

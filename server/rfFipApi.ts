@@ -1,10 +1,12 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { GaussBlockedError, LlmProviderError, runRfFipLlm, type LlmTask } from "./rfFipLlmAdapter";
+import { buildRagOpsReport } from "./rfFipRagOps";
 import {
   getRfFipDbSnapshot,
   getRfFipStorageInfo,
   replaceIssues,
   replaceKnowledgeCases,
+  replaceSignatureAliasDictionary,
   replaceSignatureDictionary,
   replaceSignatureWeightRules,
   saveImportResult,
@@ -66,6 +68,11 @@ export async function handleRfFipApiRequest(req: IncomingMessage, res: ServerRes
   try {
     if (pathname === "/api/health" && method === "GET") {
       sendJson(res, 200, { ok: true, storage: getRfFipStorageInfo() });
+      return true;
+    }
+
+    if (pathname === "/api/rag/ops-report" && method === "GET") {
+      sendJson(res, 200, { report: buildRagOpsReport({ failOnWarn: url.searchParams.get("failOnWarn") === "true" }) });
       return true;
     }
 
@@ -135,6 +142,17 @@ export async function handleRfFipApiRequest(req: IncomingMessage, res: ServerRes
     if (pathname === "/api/signature-dictionary" && method === "PUT") {
       const payload = await readJsonBody(req);
       sendJson(res, 200, { items: replaceSignatureDictionary(bodyItems(payload) as never[]) });
+      return true;
+    }
+
+    if (pathname === "/api/signature-aliases" && method === "GET") {
+      sendJson(res, 200, { items: getRfFipDbSnapshot().signatureAliasDictionary });
+      return true;
+    }
+
+    if (pathname === "/api/signature-aliases" && method === "PUT") {
+      const payload = await readJsonBody(req);
+      sendJson(res, 200, { items: replaceSignatureAliasDictionary(bodyItems(payload) as never[]) });
       return true;
     }
 

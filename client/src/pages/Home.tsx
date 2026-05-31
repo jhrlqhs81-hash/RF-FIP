@@ -5,22 +5,31 @@ import {
   TrendingUp, TrendingDown, Check, X, ChevronDown, Plus,
   Database, FileText, Sparkles, Tag, Info,
   Activity, Quote, ExternalLink, Image as ImageIcon, Table2, Search, Upload, ClipboardCheck, AlertTriangle, Loader2,
-  Moon, Sun, Trash2, SlidersHorizontal
+  Moon, Sun, Trash2, SlidersHorizontal, RefreshCw
 } from "lucide-react";
-import { MOCK_ISSUES, USERS, Issue, Message, SignatureTag, IssueStatus, ChatAttachment, type AnalysisSource, type SummaryItem } from "@/lib/mockData";
-import { KNOWLEDGE_DB, KnowledgeCase, findSimilarCases } from "@/lib/similarCasesDb";
+import { MOCK_ISSUES, USERS, Issue, Message, SignatureTag, IssueStatus, ChatAttachment, type AnalysisSource, type SummaryItem, type User } from "@/lib/mockData";
+import { KnowledgeCase, findSimilarCases } from "@/lib/similarCasesDb";
+import { DEFAULT_KNOWLEDGE_CASES } from "@/lib/knowledgeSeedCases";
 import { classifyDesenseCase } from "@/lib/rfDesenseTaxonomy";
-import { buildAttachmentEvidence, buildLocalEvidencePacket, extractRfSignatures, generateLocalRfReply, mergeSignatures, type LocalEvidencePacket } from "@/lib/localRfAnalyzer";
+import { extractRfSignatures, generateLocalRfReply, mergeSignatures } from "@/lib/localRfAnalyzer";
 import { buildLocalHybridHypotheses } from "@/lib/hybridHypothesis";
 import { buildLocalHybridSummary } from "@/lib/hybridSummary";
-import { canonicalizeSignatures, canonicalizeSignatureTag, normalizeAliasToken } from "@/lib/signatureAliasResolver";
+import { SIGNATURE_ALIAS_DICTIONARY, canonicalizeSignatures, mergeSignatureAliasDictionaries, normalizeAliasToken, type SignatureAliasEntry, type SignatureAliasCandidate } from "@/lib/signatureAliasResolver";
 import {
   mergeSignatureWeightRules,
   weightedSignatureContext,
   type SignatureWeightRule,
 } from "@/lib/signatureWeights";
-import { readImportFile, type ParsedImportSource } from "@/lib/importParser";
+import {
+  attachEvidenceTrace,
+  buildImportCandidatesFromFiles,
+  findDuplicateImportCase,
+  makeImportId,
+  normalizeCaseKey,
+  type ImportCandidate,
+} from "@/lib/importCandidateAnalyzer";
 import { SignaturePanel, SignatureWeightSettings, SimilarCasesPanel } from "@/components/SignaturePanel";
+import { getSignatureMappingStatus, SignatureMappingBadge, SignatureMappingDetail, type SignatureMappingStatus } from "@/components/SignatureMapping";
 import { HypothesisDetailPanel } from "@/components/HypothesisDetailPanel";
 import { ChatSummaryPanel } from "@/components/ChatSummaryPanel";
 import { RcaSummaryModal } from "@/components/RcaSummaryModal";
@@ -30,7 +39,9 @@ import { cn } from "@/lib/utils";
 import { useTheme } from "@/contexts/ThemeContext";
 import {
   loadRfFipDb,
+  loadRagOpsReport,
   type ImportApprovalRecord,
+  type RagOpsReport,
   persistableAttachment,
   replaceIssues,
   RfFipApiError,
@@ -38,9 +49,11 @@ import {
   saveImportApproval,
   saveIssue,
   saveKnowledgeCase,
+  saveSignatureAliases,
   saveSignatureDictionary,
   saveSignatureWeightRules,
 } from "@/lib/rfFipApi";
+import { hasRfAnalysisIntent } from "@shared/rfFipRuleCatalog";
 
 // ─── Theme ────────────────────────────────────────────────────────
 
@@ -54,8 +67,63 @@ const STATUS_CONFIG: Record<IssueStatus, { label: string; color: string; badgeCl
   archived:   { label: '보관',   color: 'var(--muted-foreground)', badgeClass: 'badge-archived' },
 };
 const STATUS_STEPS: IssueStatus[] = ['new', 'hypothesis', 'validated', 'confirmed', 'archived'];
+const ISSUE_DELETE_STATUS_LABEL: Record<IssueStatus, string> = {
+  new: '신규',
+  hypothesis: '가설 검토',
+  validated: '검증됨',
+  confirmed: '확정',
+  archived: '보관',
+};
 function canRemoveIssueFromList(issue: Issue): boolean {
-  return issue.status === 'confirmed';
+  return Boolean(issue.id);
+}
+
+const CURRENT_USER_STORAGE_KEY = 'rf-fip-current-user';
+const USER_DIRECTORY_STORAGE_KEY = 'rf-fip-user-directory';
+const CUSTOM_USER_COLORS = ['#60A5FA', '#34D399', '#F59E0B', '#F472B6', '#A78BFA', '#2DD4BF'];
+
+function makeUserId(name: string): string {
+  const normalized = name.normalize('NFKC').trim().toLowerCase().replace(/[^a-z0-9가-힣]+/g, '-').replace(/^-+|-+$/g, '');
+  return `user-${normalized || Date.now()}`;
+}
+
+function makeInitials(name: string): string {
+  const compact = name.replace(/\s+/g, '').trim();
+  if (!compact) return 'U';
+  const asciiWords = name.trim().split(/\s+/).filter(Boolean);
+  if (asciiWords.length > 1 && asciiWords.every(word => /^[A-Za-z]/.test(word))) {
+    return asciiWords.slice(0, 2).map(word => word[0]).join('').toUpperCase();
+  }
+  return compact.slice(0, 2).toUpperCase();
+}
+
+function colorForUserId(id: string): string {
+  const hash = Array.from(id).reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  return CUSTOM_USER_COLORS[hash % CUSTOM_USER_COLORS.length];
+}
+
+function readStoredUsers(): Record<string, User> {
+  if (typeof window === 'undefined') return USERS;
+  try {
+    const raw = window.localStorage.getItem(USER_DIRECTORY_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return { ...USERS, ...(parsed && typeof parsed === 'object' ? parsed : {}) };
+  } catch {
+    return USERS;
+  }
+}
+
+function readStoredCurrentUserId(users: Record<string, User>): string {
+  if (typeof window === 'undefined') return 'kim';
+  const stored = window.localStorage.getItem(CURRENT_USER_STORAGE_KEY);
+  return stored && users[stored] ? stored : 'kim';
+}
+
+function persistUserSelection(users: Record<string, User>, currentUserId: string) {
+  if (typeof window === 'undefined') return;
+  const customUsers = Object.fromEntries(Object.entries(users).filter(([id]) => !USERS[id]));
+  window.localStorage.setItem(USER_DIRECTORY_STORAGE_KEY, JSON.stringify(customUsers));
+  window.localStorage.setItem(CURRENT_USER_STORAGE_KEY, currentUserId);
 }
 
 function toPersistableIssue(issue: Issue): Issue {
@@ -79,8 +147,7 @@ function normalizeLlmSignatures(value: unknown): SignatureTag[] {
 }
 
 function isRfAnalysisIntent(text: string, attachments: ChatAttachment[]): boolean {
-  if (attachments.length > 0) return true;
-  return /rf|rx|tx|ota|tis|eis|desense|sensitivity|antenna|band|pim|im3|im5|spur|harmonic|conducted|chamber|shield|clip|noise|dBm|dB|감도|안테나|가설|요약|분석|측정|주파수|대역|노이즈|실드|판별|시험/i.test(text);
+  return hasRfAnalysisIntent(text, attachments.length);
 }
 
 function sourceLabel(source?: AnalysisSource): string {
@@ -130,8 +197,8 @@ function summaryItemPlainText(item: SummaryItem): string {
   ].filter(Boolean).join(' | ');
 }
 
-function buildSharedAnalysisContext(issue: Issue, signatureWeightRules: SignatureWeightRule[]) {
-  const similarCases = findSimilarCases(issue.signatures, 15, 4, signatureWeightRules);
+function buildSharedAnalysisContext(issue: Issue, signatureWeightRules: SignatureWeightRule[], knowledgeCases: KnowledgeCase[], signatureAliasDictionary: SignatureAliasEntry[]) {
+  const similarCases = findSimilarCases(issue.signatures, 15, 4, signatureWeightRules, knowledgeCases, signatureAliasDictionary);
   const weightedSignatures = weightedSignatureContext(issue.signatures, signatureWeightRules);
   return {
     issue: {
@@ -305,8 +372,7 @@ function StatusTimeline({ status }: { status: IssueStatus }) {
   );
 }
 
-function UserAvatar({ userId, size = 'sm' }: { userId: string; size?: 'sm' | 'md' }) {
-  const user = USERS[userId];
+function UserAvatar({ user, size = 'sm' }: { user?: User | null; size?: 'sm' | 'md' }) {
   if (!user) return null;
   const sz = size === 'sm' ? 'w-6 h-6 text-xs' : 'w-8 h-8 text-sm';
   return (
@@ -424,12 +490,13 @@ function AttachmentEvidenceList({ evidence }: { evidence: string[] }) {
 }
 
 // ─── Chat Message ─────────────────────────────────────────────────
-function ChatMessage({ msg, onQuote, onReply }: {
+function ChatMessage({ msg, users, onReply, onApproveAlias }: {
   msg: Message;
-  onQuote?: (text: string, source: string) => void;
+  users: Record<string, User>;
   onReply?: (msg: Message) => void;
+  onApproveAlias?: (candidate: SignatureAliasCandidate) => void;
 }) {
-  const user = msg.userId ? USERS[msg.userId] : null;
+  const user = msg.userId ? users[msg.userId] : null;
 
   if (msg.type === 'system') {
     return (
@@ -470,15 +537,6 @@ function ChatMessage({ msg, onQuote, onReply }: {
               </div>
             )}
             <p className="text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed">{msg.content}</p>
-            {/* Demo: show table for specific message */}
-            {msg.id === 'm10' && (
-              <MediaBlock type="table" rows={[
-                ['항목', '측정값', '기준'],
-                ['Peak 주파수', '1850.5 MHz', 'B3 DL ±1 MHz'],
-                ['Peak 파워', '-92.3 dBm', '< -85 dBm'],
-                ['IM3 계산값', '1850.5 MHz', '일치 ✅'],
-              ]} />
-            )}
             {msg.attachments?.map(attachment => (
               <AttachmentBlock key={attachment.id} attachment={attachment} />
             ))}
@@ -503,7 +561,7 @@ function ChatMessage({ msg, onQuote, onReply }: {
 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex gap-3 group">
-      <UserAvatar userId={msg.userId!} />
+      <UserAvatar user={user} />
       <div className="flex max-w-[72%] flex-col items-start space-y-1">
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold" style={{ color: user?.color }}>{user?.name}</span>
@@ -527,6 +585,29 @@ function ChatMessage({ msg, onQuote, onReply }: {
           {msg.attachments?.map(attachment => (
             <AttachmentBlock key={attachment.id} attachment={attachment} />
           ))}
+          {msg.pendingAliasCandidates && msg.pendingAliasCandidates.length > 0 && (
+            <div className="mt-3 space-y-1.5 rounded-lg border border-border/60 p-2" style={{ background: 'var(--panel-surface)' }}>
+              <p className="text-[10px] font-semibold text-muted-foreground">동의어 후보</p>
+              {msg.pendingAliasCandidates.slice(0, 4).map((candidate, index) => (
+                <div key={`${candidate.raw}-${candidate.canonicalKey}-${candidate.canonicalValue}-${index}`} className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 truncate text-[10px] text-foreground/80">
+                    <span className="font-mono">{candidate.raw}</span>
+                    <span className="text-muted-foreground"> → </span>
+                    <span className="font-mono">{candidate.canonicalKey}:{candidate.canonicalValue}</span>
+                  </span>
+                  {onApproveAlias && (
+                    <button
+                      type="button"
+                      onClick={() => onApproveAlias(candidate)}
+                      className="shrink-0 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+                    >
+                      승인
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </motion.div>
@@ -586,8 +667,20 @@ function DBConfirmModal({ issue, onClose, onApprove, onReject }: {
             <h3 className="text-sm font-semibold text-foreground/90 flex items-center gap-2">
               <Tag className="w-4 h-4" style={{ color: 'var(--rf-blue-fg)' }} /> Signature 태그
             </h3>
-            <div className="flex flex-wrap gap-1.5">
-              {issue.signatures.map((tag, i) => <span key={i} className="sig-tag">{tag.key}: {tag.value}</span>)}
+            {issue.signatures.some(sig => getSignatureMappingStatus(sig).tone !== "mapped") && (
+              <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                미매핑 또는 부분 매핑 Signature가 있어 DB 등록 후 분석/검색 활용이 제한될 수 있습니다.
+              </p>
+            )}
+            <div className="grid gap-2 md:grid-cols-2">
+              {issue.signatures.map((tag, i) => (
+                <div key={i} className="rounded-lg border border-border/60 p-2" style={{ background: 'var(--card)' }}>
+                  <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                    <span className="sig-tag">{tag.key}: {tag.value}</span>
+                  </div>
+                  <SignatureMappingDetail tag={tag} />
+                </div>
+              ))}
             </div>
           </div>
           <div className="rounded-xl p-4 space-y-2" style={{ background: 'var(--panel-surface)', border: '1px solid var(--border)' }}>
@@ -755,112 +848,6 @@ function CreateIssueModal({
   );
 }
 
-interface ImportCandidate {
-  id: string;
-  fileName: string;
-  status: 'candidate' | 'hold';
-  score: number;
-  reasons: string[];
-  evidenceSnippets: string[];
-  importFacts: string[];
-  statusDecision: ImportStatusDecision;
-  localEvidencePacket?: LocalEvidencePacket;
-  previewText: string;
-  rawText: string;
-  caseData: KnowledgeCase;
-  materials: ChatAttachment[];
-  duplicateMatch?: ImportDuplicateMatch;
-}
-
-interface ImportStatusDecision {
-  status: 'candidate' | 'hold';
-  score: number;
-  ruleIds: string[];
-  explanation: string;
-  facts: string[];
-}
-
-interface ImportDuplicateMatch {
-  duplicate: boolean;
-  reason: string;
-  matchedCaseId?: string;
-  similarity?: number;
-}
-
-function makeImportId(prefix: string, sequence = 0): string {
-  return `${prefix}-${Date.now()}-${sequence}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function normalizeCaseKey(item: Pick<KnowledgeCase, 'title' | 'band' | 'confirmedRootCause'>): string {
-  return [item.title, item.band, item.confirmedRootCause]
-    .join('|')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function signatureKey(signature: SignatureTag): string {
-  const canonical = canonicalizeSignatureTag(signature);
-  return `${normalizeAliasToken(canonical.key)}:${normalizeAliasToken(canonical.value)}`;
-}
-
-function signatureSimilarity(a: SignatureTag[], b: SignatureTag[]): number {
-  const left = new Set(a.map(signatureKey));
-  const right = new Set(b.map(signatureKey));
-  if (!left.size && !right.size) return 0;
-  let intersection = 0;
-  for (const key of Array.from(left)) {
-    if (right.has(key)) intersection += 1;
-  }
-  return intersection / new Set([...Array.from(left), ...Array.from(right)]).size;
-}
-
-function findDuplicateImportCase(candidate: KnowledgeCase, existing: KnowledgeCase[]): ImportDuplicateMatch {
-  const normalizedCandidateKey = normalizeCaseKey(candidate);
-  let best: ImportDuplicateMatch = { duplicate: false, reason: 'No similar Knowledge DB case found.' };
-
-  for (const item of existing) {
-    if (normalizeCaseKey(item) === normalizedCandidateKey) {
-      return {
-        duplicate: true,
-        reason: 'Same normalized title, band, and root cause.',
-        matchedCaseId: item.id,
-        similarity: 1,
-      };
-    }
-
-    const similarity = signatureSimilarity(candidate.signatures, item.signatures);
-    const sameBand = candidate.band.toLowerCase() === item.band.toLowerCase();
-    const rootCauseOverlap =
-      candidate.confirmedRootCause.toLowerCase().includes(item.confirmedRootCause.toLowerCase()) ||
-      item.confirmedRootCause.toLowerCase().includes(candidate.confirmedRootCause.toLowerCase());
-    const titleOverlap =
-      candidate.title.toLowerCase().includes(item.title.toLowerCase()) ||
-      item.title.toLowerCase().includes(candidate.title.toLowerCase());
-
-    const duplicate = (sameBand && similarity >= 0.55) || (similarity >= 0.7 && (rootCauseOverlap || titleOverlap));
-    if (duplicate && similarity > (best.similarity ?? 0)) {
-      best = {
-        duplicate: true,
-        reason: sameBand
-          ? `Signature similarity ${(similarity * 100).toFixed(0)}% on the same band.`
-          : `Signature similarity ${(similarity * 100).toFixed(0)}% with matching title/root-cause clue.`,
-        matchedCaseId: item.id,
-        similarity,
-      };
-    } else if (!best.duplicate && similarity > (best.similarity ?? 0)) {
-      best = {
-        duplicate: false,
-        reason: `Closest signature similarity ${(similarity * 100).toFixed(0)}%.`,
-        matchedCaseId: item.id,
-        similarity,
-      };
-    }
-  }
-
-  return best;
-}
-
 function mergeKnowledgeCases(base: KnowledgeCase[], additions: KnowledgeCase[]): KnowledgeCase[] {
   const merged = new Map<string, KnowledgeCase>();
   for (const item of additions) merged.set(item.id, item);
@@ -885,7 +872,7 @@ function nextIssueId(issues: Issue[]): string {
     const match = issue.id.match(/^ISS-\d{4}-(\d+)$/);
     return match ? Math.max(max, Number(match[1])) : max;
   }, 0);
-  return `ISS-${year}-${String(maxNumber + 1).padStart(3, '0')}`;
+  return `ISS-${year}-${String(maxNumber + 1).padStart(3, "0")}`;
 }
 
 function buildKnowledgeCaseFromIssue(issue: Issue): KnowledgeCase {
@@ -895,327 +882,17 @@ function buildKnowledgeCaseFromIssue(issue: Issue): KnowledgeCase {
     title: detail.title,
     model: issue.model,
     band: issue.band,
-    status: 'confirmed',
+    status: "confirmed",
     confirmedRootCause: detail.rootCause,
-    mitigation: Array.isArray(detail.mitigation) ? detail.mitigation.join(' / ') : detail.mitigation,
+    mitigation: Array.isArray(detail.mitigation) ? detail.mitigation.join(" / ") : detail.mitigation,
     symptomPattern: detail.symptomPattern,
     diagnosticTests: detail.diagnosticTests,
     suspectedStructures: detail.suspectedStructures,
-    lessonsLearned: Array.isArray(detail.lessonsLearned) ? detail.lessonsLearned.join(' / ') : detail.lessonsLearned,
+    lessonsLearned: Array.isArray(detail.lessonsLearned) ? detail.lessonsLearned.join(" / ") : detail.lessonsLearned,
     decisionRationale: detail.decisionRationale,
     usedMaterials: detail.usedMaterials?.map(persistableAttachment),
     signatures: issue.signatures,
   };
-}
-
-function parseDelimitedRows(text: string, delimiter?: string): string[][] {
-  const lines = text.trim().split(/\r?\n/).filter(Boolean).slice(0, 12);
-  const inferredDelimiter = delimiter ?? (lines.some(line => line.includes('\t')) ? '\t' : ',');
-  return lines.map(line => line.split(inferredDelimiter).map(cell => cell.trim())).filter(row => row.length > 1);
-}
-
-function attachEvidenceTrace(material: ChatAttachment): ChatAttachment {
-  const evidence = buildAttachmentEvidence([material]).map(item => `${item.id}: ${item.detail}`);
-  return evidence.length ? { ...material, evidence } : material;
-}
-
-function buildImportStatusDecision(input: {
-  text: string;
-  signatures: SignatureTag[];
-  hasRfSignal: boolean;
-  insightCategory: string;
-  evidencePacket: LocalEvidencePacket;
-}): ImportStatusDecision {
-  const status: ImportStatusDecision['status'] = input.text && (input.hasRfSignal || input.signatures.length >= 2) ? 'candidate' : 'hold';
-  const score = status === 'candidate'
-    ? Math.min(94, 42 + input.signatures.length * 6 + (input.hasRfSignal ? 18 : 0))
-    : Math.min(35, 10 + input.signatures.length * 4);
-  const facts = [
-    `${input.signatures.length} extracted signature(s)`,
-    `classification=${input.insightCategory}`,
-    ...input.evidencePacket.evidence
-      .filter(item => item.type === 'attachment' || item.type === 'classification')
-      .slice(0, 4)
-      .map(item => `${item.id}: ${item.detail}`),
-    ...(input.evidencePacket.pendingAliasCandidates ?? [])
-      .slice(0, 3)
-      .map(item => `pending alias: ${item.raw} -> ${item.canonicalKey}:${item.canonicalValue} (${item.score})`),
-  ];
-  return {
-    status,
-    score,
-    ruleIds: [
-      input.hasRfSignal ? 'rf-keyword-present' : 'rf-keyword-missing',
-      input.signatures.length >= 2 ? 'signature-count-pass' : 'signature-count-low',
-    ],
-    explanation: status === 'candidate'
-      ? 'Deterministic local rules found enough RF signal for reviewer approval flow.'
-      : 'Deterministic local rules did not find enough RF signal for automatic approval.',
-    facts,
-  };
-}
-
-function buildImportCandidate(file: File, rawText: string, signatureWeightRules: SignatureWeightRule[] = []): ImportCandidate {
-  const text = rawText.trim();
-  const signatures = extractRfSignatures(text);
-  const insight = classifyDesenseCase(signatures, text);
-  const hasRfSignal = /desense|sensitivity|rx|tx|pim|im3|im5|band|channel|db|dbm|감도|수신|송신|저하|압력|접촉|차폐|쉴드/i.test(text);
-  const status: ImportCandidate['status'] = text && (hasRfSignal || signatures.length >= 2) ? 'candidate' : 'hold';
-  const score = status === 'candidate'
-    ? Math.min(94, 42 + signatures.length * 6 + (hasRfSignal ? 18 : 0))
-    : Math.min(35, 10 + signatures.length * 4);
-  const band = signatures.find(sig => sig.key.toLowerCase() === 'band')?.value ?? '미지정';
-  const firstLine = text.split(/\r?\n/).find(line => line.trim().length > 0)?.trim();
-  const reasons = status === 'candidate'
-    ? [
-        `${signatures.length}개 RF Signature를 추출했습니다.`,
-        `${insight.category} 분류 rule과 매칭되었습니다.`,
-        hasRfSignal ? '감도 저하, Tx/Rx, PIM, 접촉, dB 계열 키워드가 포함되어 있습니다.' : '구조화 가능한 RF 단서가 있습니다.',
-      ]
-    : [
-        'DB 후보로 판단할 RF 단서가 부족합니다.',
-        'Excel/이미지 원문 분석은 Gauss/API 또는 parser 확정 후 보강 예정입니다.',
-      ];
-  const evidenceSnippets = text
-    .split(/\r?\n/)
-    .filter(line => /desense|sensitivity|rx|tx|pim|im3|im5|band|channel|db|dbm|감도|수신|송신|저하|압력|접촉|shield|clip|mipi|pmic|display|ota|conducted/i.test(line))
-    .slice(0, 5);
-  const rows = /\.(csv|tsv)$/i.test(file.name) ? parseDelimitedRows(text, file.name.toLowerCase().endsWith('.tsv') ? '\t' : ',') : [];
-  const material: ChatAttachment = rows.length >= 2
-    ? { id: makeImportId('import-material'), type: 'table', name: file.name, mimeType: file.type, size: file.size, rows }
-    : { id: makeImportId('import-material'), type: file.type.startsWith('image/') ? 'image' : 'file', name: file.name, mimeType: file.type, size: file.size, url: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined };
-  const tracedMaterial = attachEvidenceTrace(material);
-  const localEvidencePacket = buildLocalEvidencePacket({ text, existingSignatures: [], attachments: [tracedMaterial], signatureWeightRules });
-  const statusDecision = buildImportStatusDecision({
-    text,
-    signatures,
-    hasRfSignal,
-    insightCategory: insight.category,
-    evidencePacket: localEvidencePacket,
-  });
-
-  return {
-    id: makeImportId('import'),
-    fileName: file.name,
-    status,
-    score,
-    reasons,
-    evidenceSnippets,
-    importFacts: statusDecision.facts,
-    statusDecision,
-    localEvidencePacket,
-    previewText: text.slice(0, 900),
-    rawText: text,
-    materials: [tracedMaterial],
-    caseData: {
-      id: `KB-LOCAL-${new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14)}`,
-      title: firstLine ? firstLine.slice(0, 90) : `${file.name} Import 후보`,
-      model: 'Import 검토',
-      band,
-      status: 'validated',
-      confirmedRootCause: status === 'candidate' ? `${insight.category} 후보: ${insight.mechanism}` : '원문 분석 정보 부족',
-      mitigation: insight.actionGuide,
-      symptomPattern: insight.symptomPattern,
-      diagnosticTests: insight.diagnosticTests,
-      suspectedStructures: insight.suspectedStructures,
-      lessonsLearned: insight.lessonsLearned,
-      decisionRationale: [...reasons, ...evidenceSnippets.map(snippet => `원문 근거: ${snippet}`)],
-      usedMaterials: [persistableAttachment(tracedMaterial)],
-      signatures,
-    },
-  };
-}
-
-function refreshImportEvidence(candidate: ImportCandidate, text: string, materials: ChatAttachment[], signatureWeightRules: SignatureWeightRule[] = []): ImportCandidate {
-  const tracedMaterials = materials.map(attachEvidenceTrace);
-  const packet = buildLocalEvidencePacket({ text, existingSignatures: [], attachments: tracedMaterials, signatureWeightRules });
-  const decision = buildImportStatusDecision({
-    text,
-    signatures: candidate.caseData.signatures,
-    hasRfSignal: candidate.status === 'candidate',
-    insightCategory: classifyDesenseCase(candidate.caseData.signatures, text).category,
-    evidencePacket: packet,
-  });
-  const statusDecision = { ...decision, status: candidate.status, score: candidate.score };
-  return {
-    ...candidate,
-    importFacts: statusDecision.facts,
-    statusDecision,
-    localEvidencePacket: packet,
-    materials: tracedMaterials,
-    caseData: {
-      ...candidate.caseData,
-      usedMaterials: tracedMaterials.map(persistableAttachment),
-      decisionRationale: [
-        ...candidate.reasons,
-        ...candidate.evidenceSnippets.map(snippet => `원문 근거: ${snippet}`),
-        ...statusDecision.facts.map(fact => `Local fact: ${fact}`),
-      ],
-    },
-  };
-}
-
-interface RawImportCase {
-  title?: string;
-  text: string;
-  materials: ChatAttachment[];
-}
-
-function parseDelimitedLine(line: string, delimiter: string): string[] {
-  const cells: string[] = [];
-  let current = '';
-  let inQuotes = false;
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    const next = line[index + 1];
-    if (char === '"' && next === '"') {
-      current += '"';
-      index += 1;
-    } else if (char === '"') {
-      inQuotes = !inQuotes;
-    } else if (char === delimiter && !inQuotes) {
-      cells.push(current.trim());
-      current = '';
-    } else {
-      current += char;
-    }
-  }
-  cells.push(current.trim());
-  return cells;
-}
-
-function parseDelimitedTable(text: string, delimiter: string): string[][] {
-  return text.trim().split(/\r?\n/).filter(Boolean).map(line => parseDelimitedLine(line, delimiter));
-}
-
-function normalizedHeader(value: string) {
-  return value.trim().toLowerCase().replace(/[\s_-]+/g, '');
-}
-
-function asRawText(item: unknown): string {
-  if (item && typeof item === 'object') {
-    return Object.entries(item as Record<string, unknown>)
-      .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : String(value ?? '')}`)
-      .join('\n');
-  }
-  return String(item ?? '');
-}
-
-function extractRawCasesFromFile(file: File, rawText: string): RawImportCase[] {
-  const text = rawText.trim();
-  const sourceMaterial: ChatAttachment = {
-    id: makeImportId('import-source'),
-    type: file.type.startsWith('image/') ? 'image' : 'file',
-    name: file.name,
-    mimeType: file.type,
-    size: file.size,
-    url: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
-  };
-  if (!text) return [{ title: file.name, text: `${file.name}\n${file.type || 'unknown type'}\n${Math.round(file.size / 1024)} KB`, materials: [sourceMaterial] }];
-
-  if (/\.(csv|tsv)$/i.test(file.name)) {
-    const delimiter = file.name.toLowerCase().endsWith('.tsv') ? '\t' : ',';
-    const rows = parseDelimitedTable(text, delimiter);
-    const headers = rows[0] ?? [];
-    const headerKeys = headers.map(normalizedHeader);
-    const hasCaseColumns = headerKeys.some(key => ['caseid', 'id', 'issueid', 'title', 'casetitle', 'symptom', 'rootcause'].includes(key));
-    if (rows.length >= 2 && hasCaseColumns) {
-      return rows.slice(1).map((row, index) => {
-        const titleIndex = headerKeys.findIndex(key => ['title', 'casetitle', 'caseid', 'id', 'issueid'].includes(key));
-        return {
-          title: titleIndex >= 0 ? row[titleIndex] : `${file.name} row ${index + 1}`,
-          text: headers.map((header, cellIndex) => `${header}: ${row[cellIndex] ?? ''}`).join('\n'),
-          materials: [{
-            id: makeImportId('import-row', index),
-            type: 'table',
-            name: `${file.name} #${index + 1}`,
-            mimeType: file.type,
-            size: file.size,
-            rows: [headers, row],
-          }],
-        };
-      });
-    }
-    return [{
-      title: file.name,
-      text,
-      materials: [{ id: makeImportId('import-table'), type: 'table', name: file.name, mimeType: file.type, size: file.size, rows: rows.slice(0, 12) }],
-    }];
-  }
-
-  if (/\.json$/i.test(file.name)) {
-    try {
-      const parsed = JSON.parse(text);
-      const items = Array.isArray(parsed) ? parsed : [parsed];
-      return items.map((item, index) => ({
-        title: item && typeof item === 'object' ? String((item as Record<string, unknown>).title ?? (item as Record<string, unknown>).case_id ?? (item as Record<string, unknown>).id ?? `${file.name} item ${index + 1}`) : `${file.name} item ${index + 1}`,
-        text: asRawText(item),
-        materials: [sourceMaterial],
-      }));
-    } catch {
-      return [{ title: file.name, text, materials: [sourceMaterial] }];
-    }
-  }
-
-  if (/\.(txt|md)$/i.test(file.name)) {
-    const sections: string[] = [];
-    let current: string[] = [];
-    for (const line of text.split(/\r?\n/)) {
-      const boundary = /^(---+|case\s*:|ISS-\d|KB-\d|\d+[.)]\s+)/i.test(line.trim());
-      if (boundary && current.join('\n').trim()) {
-        sections.push(current.join('\n').trim());
-        current = [line];
-      } else {
-        current.push(line);
-      }
-    }
-    if (current.join('\n').trim()) sections.push(current.join('\n').trim());
-    return (sections.length > 1 ? sections : [text]).map((section, index) => ({
-      title: section.split(/\r?\n/).find(Boolean)?.slice(0, 90) ?? `${file.name} section ${index + 1}`,
-      text: section,
-      materials: [sourceMaterial],
-    }));
-  }
-
-  return [{ title: file.name, text, materials: [sourceMaterial] }];
-}
-
-function buildImportCandidatesFromFile(file: File, rawText: string, offset = 0, signatureWeightRules: SignatureWeightRule[] = []): ImportCandidate[] {
-  return extractRawCasesFromFile(file, rawText).map((rawCase, index) => {
-    const sequence = offset + index;
-    const base = buildImportCandidate(file, rawCase.text, signatureWeightRules);
-    return refreshImportEvidence({
-      ...base,
-      id: makeImportId('import', sequence),
-      fileName: `${file.name} #${index + 1}`,
-      previewText: rawCase.text.slice(0, 900),
-      rawText: rawCase.text,
-      caseData: {
-        ...base.caseData,
-        id: `KB-LOCAL-${new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14)}-${String(sequence + 1).padStart(2, '0')}`,
-        title: (rawCase.title || base.caseData.title).slice(0, 90),
-      },
-    }, rawCase.text, rawCase.materials, signatureWeightRules);
-  });
-}
-
-function buildImportCandidatesFromSources(file: File, sources: ParsedImportSource[], offset = 0, signatureWeightRules: SignatureWeightRule[] = []): ImportCandidate[] {
-  return sources.map((source, index) => {
-    const sequence = offset + index;
-    const base = buildImportCandidate(file, source.text, signatureWeightRules);
-    return refreshImportEvidence({
-      ...base,
-      id: makeImportId('import', sequence),
-      fileName: `${file.name} #${index + 1}`,
-      previewText: source.text.slice(0, 900),
-      rawText: source.text,
-      caseData: {
-        ...base.caseData,
-        id: `KB-LOCAL-${new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14)}-${String(sequence + 1).padStart(2, '0')}`,
-        title: (source.title || base.caseData.title).slice(0, 90),
-      },
-    }, source.text, source.materials, signatureWeightRules);
-  });
 }
 
 function ImportOriginalModal({ candidate, onClose }: { candidate: ImportCandidate; onClose: () => void }) {
@@ -1480,6 +1157,7 @@ function KnowledgeDbWorkspace({
   signatureFilter,
   knowledgeCases,
   customSignatures,
+  signatureAliasDictionary,
   signatureWeightRules,
   onChangeSignatureWeightRules,
   onChangeCustomSignatures,
@@ -1491,6 +1169,7 @@ function KnowledgeDbWorkspace({
   signatureFilter?: { key: string; value?: string } | null;
   knowledgeCases: KnowledgeCase[];
   customSignatures: SignatureTag[];
+  signatureAliasDictionary: SignatureAliasEntry[];
   signatureWeightRules: SignatureWeightRule[];
   onChangeSignatureWeightRules: (items: SignatureWeightRule[]) => void;
   onChangeCustomSignatures: (items: SignatureTag[]) => void;
@@ -1554,14 +1233,11 @@ function KnowledgeDbWorkspace({
     const selectedFiles = Array.from(files ?? []);
     if (!selectedFiles.length) return;
     try {
-      const candidateGroups = await Promise.all(selectedFiles.map(async (file, fileIndex) => {
-        const sources = await readImportFile(file);
-        return buildImportCandidatesFromSources(file, sources, fileIndex * 100, signatureWeightRules);
-      }));
-      const nextCandidates = candidateGroups.flat().map(candidate => ({
-        ...candidate,
-        duplicateMatch: findDuplicateImportCase(candidate.caseData, knowledgeCases),
-      }));
+      const nextCandidates = await buildImportCandidatesFromFiles(selectedFiles, {
+        signatureWeightRules,
+        knowledgeCases,
+        signatureAliasDictionary,
+      });
       setImportCandidates(nextCandidates);
       setSelectedImportCandidateId(nextCandidates[0]?.id ?? '');
       setCheckedImportCandidateIds(nextCandidates.filter(candidate => candidate.status === 'candidate' && !candidate.duplicateMatch?.duplicate).map(candidate => candidate.id));
@@ -1599,7 +1275,7 @@ function KnowledgeDbWorkspace({
     const skipped: ImportCandidate[] = [];
     for (const candidate of approved) {
       const key = normalizeCaseKey(candidate.caseData);
-      const duplicate = candidate.duplicateMatch ?? findDuplicateImportCase(candidate.caseData, knowledgeCases);
+      const duplicate = candidate.duplicateMatch ?? findDuplicateImportCase(candidate.caseData, knowledgeCases, signatureAliasDictionary);
       if (duplicate.duplicate || existingKeys.has(key)) {
         skipped.push(candidate);
         continue;
@@ -1821,6 +1497,126 @@ function KnowledgeDbWorkspace({
   );
 }
 
+function RagOpsPanel() {
+  const [report, setReport] = useState<RagOpsReport | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const runCheck = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const nextReport = await loadRagOpsReport();
+      setReport(nextReport);
+      if (nextReport.verdict === 'FAIL') {
+        toast.error('RAG 점검 실패', { description: `${nextReport.errors.length}개 오류가 있습니다.` });
+      } else if (nextReport.verdict === 'WARN') {
+        toast.warning('RAG 점검 경고', { description: `${nextReport.warnings.length}개 경고가 있습니다.` });
+      } else {
+        toast.success('RAG 점검 통과');
+      }
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : String(caught);
+      setError(message);
+      toast.error('RAG 점검 API를 사용할 수 없습니다.', { description: message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const verdictStyle = report?.verdict === 'FAIL'
+    ? { background: 'var(--rf-red-bg)', borderColor: 'var(--rf-red-border)', color: 'var(--rf-red-fg)' }
+    : report?.verdict === 'WARN'
+    ? { background: 'var(--rf-amber-bg)', borderColor: 'var(--rf-amber-border)', color: 'var(--rf-amber-fg)' }
+    : { background: 'var(--rf-green-bg)', borderColor: 'var(--rf-green-border)', color: 'var(--rf-green-fg)' };
+
+  return (
+    <div className="rounded-xl border border-border/70 p-3" style={{ background: 'var(--card)' }}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Activity className="h-4 w-4 text-primary" />
+            <p className="text-sm font-semibold text-foreground">RAG 운영 점검</p>
+            {report && (
+              <span className="rounded-full border px-2 py-0.5 text-[10px] font-semibold" style={verdictStyle}>
+                {report.verdict}
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Public Wiki, Knowledge case excerpt, OpenAI 공개 범위 누출 여부를 수동으로 확인합니다.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={runCheck}
+          disabled={loading}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+        >
+          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          RAG 점검 실행
+        </button>
+      </div>
+
+      {error && (
+        <div className="mt-3 rounded-lg border px-3 py-2 text-xs" style={{ background: 'var(--rf-red-bg)', borderColor: 'var(--rf-red-border)', color: 'var(--rf-red-fg)' }}>
+          현재 점검 API를 사용할 수 없습니다. {error}
+        </div>
+      )}
+
+      {report ? (
+        <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-lg border border-border/60 p-2" style={{ background: 'var(--panel-surface)' }}>
+              <p className="text-[10px] text-muted-foreground">Public Wiki</p>
+              <p className="mt-1 font-mono text-lg font-semibold text-foreground">{report.counts.publicWikiDocuments}</p>
+            </div>
+            <div className="rounded-lg border border-border/60 p-2" style={{ background: 'var(--panel-surface)' }}>
+              <p className="text-[10px] text-muted-foreground">Case Excerpt</p>
+              <p className="mt-1 font-mono text-lg font-semibold text-foreground">{report.counts.knowledgeCaseExcerpts}</p>
+            </div>
+            <div className="rounded-lg border border-border/60 p-2" style={{ background: 'var(--panel-surface)' }}>
+              <p className="text-[10px] text-muted-foreground">OpenAI Probe</p>
+              <p className="mt-1 font-mono text-lg font-semibold text-foreground">{report.counts.openAiProbeSnippets}</p>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <p className="text-[10px] text-muted-foreground">최근 점검: {new Date(report.generatedAt).toLocaleString()}</p>
+            {report.errors.length === 0 && report.warnings.length === 0 ? (
+              <div className="rounded-lg border px-3 py-2 text-xs" style={{ background: 'var(--rf-green-bg)', borderColor: 'var(--rf-green-border)', color: 'var(--rf-green-fg)' }}>
+                문제 없음. RAG source 정책과 OpenAI 공개 범위가 정상입니다.
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {report.errors.map(item => (
+                  <div key={item} className="rounded-lg border px-3 py-2 text-xs" style={{ background: 'var(--rf-red-bg)', borderColor: 'var(--rf-red-border)', color: 'var(--rf-red-fg)' }}>
+                    FAIL: {item}
+                  </div>
+                ))}
+                {report.warnings.map(item => (
+                  <div key={item} className="rounded-lg border px-3 py-2 text-xs" style={{ background: 'var(--rf-amber-bg)', borderColor: 'var(--rf-amber-border)', color: 'var(--rf-amber-fg)' }}>
+                    WARN: {item}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="rounded-lg border border-border/60 p-2" style={{ background: 'var(--panel-surface)' }}>
+              <p className="mb-1 text-[10px] font-semibold text-muted-foreground">다음 조치</p>
+              <ul className="space-y-1 text-[10px] text-muted-foreground">
+                {report.nextActions.map(item => <li key={item}>- {item}</li>)}
+              </ul>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <p className="mt-3 text-xs text-muted-foreground">
+          아직 실행된 점검이 없습니다. 버튼을 누르면 서버가 현재 RAG source 상태를 읽어 보고서만 생성합니다.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function SignatureDictionaryWorkspace({
   knowledgeCases,
   customSignatures,
@@ -1843,13 +1639,17 @@ function SignatureDictionaryWorkspace({
   const [draftKey, setDraftKey] = useState('');
   const [draftValue, setDraftValue] = useState('');
   const [showWeightSettings, setShowWeightSettings] = useState(false);
+  const draftMapping = useMemo(
+    () => getSignatureMappingStatus({ key: draftKey.trim(), value: draftValue.trim() }),
+    [draftKey, draftValue]
+  );
 
   const entries = useMemo(() => {
-    const map = new Map<string, { key: string; value: string; count: number; caseIds: string[]; source: 'db' | 'user' }>();
+    const map = new Map<string, { key: string; value: string; count: number; caseIds: string[]; source: 'db' | 'user'; mapping: SignatureMappingStatus }>();
     for (const kc of knowledgeCases) {
       for (const sig of kc.signatures) {
         const id = `${sig.key}|||${sig.value}`;
-        const current = map.get(id) ?? { key: sig.key, value: sig.value, count: 0, caseIds: [], source: 'db' as const };
+        const current = map.get(id) ?? { key: sig.key, value: sig.value, count: 0, caseIds: [], source: 'db' as const, mapping: getSignatureMappingStatus(sig) };
         current.count += 1;
         current.caseIds.push(kc.id);
         map.set(id, current);
@@ -1857,7 +1657,7 @@ function SignatureDictionaryWorkspace({
     }
     for (const sig of customSignatures) {
       const id = `${sig.key}|||${sig.value}`;
-      const current = map.get(id) ?? { key: sig.key, value: sig.value, count: 0, caseIds: [], source: 'user' as const };
+      const current = map.get(id) ?? { key: sig.key, value: sig.value, count: 0, caseIds: [], source: 'user' as const, mapping: getSignatureMappingStatus(sig) };
       current.source = 'user';
       map.set(id, current);
     }
@@ -1867,7 +1667,7 @@ function SignatureDictionaryWorkspace({
   const filtered = entries.filter(item => {
     const needle = query.trim().toLowerCase();
     if (!needle) return true;
-    return `${item.key} ${item.value} ${item.caseIds.join(' ')}`.toLowerCase().includes(needle);
+    return `${item.key} ${item.value} ${item.mapping.label} ${item.mapping.detail ?? ''} ${item.caseIds.join(' ')}`.toLowerCase().includes(needle);
   });
 
   const startEdit = (index: number) => {
@@ -1882,6 +1682,12 @@ function SignatureDictionaryWorkspace({
       onChangeCustomSignatures([...customSignatures, { key: draftKey.trim(), value: draftValue.trim(), isNew: true }]);
     } else {
       onChangeCustomSignatures(customSignatures.map((item, idx) => idx === editingIndex ? { ...item, key: draftKey.trim(), value: draftValue.trim() } : item));
+    }
+    const savedMapping = getSignatureMappingStatus({ key: draftKey.trim(), value: draftValue.trim() });
+    if (savedMapping.tone === "unmapped") {
+      toast.warning("미매핑 Signature로 저장했습니다.", { description: "표시/필터에는 사용되지만 Local Engine 분석 영향은 제한됩니다." });
+    } else if (savedMapping.tone === "partial") {
+      toast("Key만 매핑된 Signature로 저장했습니다.", { description: "Value는 기존 canonical value나 alias 승인 후 더 안정적으로 분석에 반영됩니다." });
     }
     setEditingIndex(null);
     setDraftKey('');
@@ -1923,6 +1729,15 @@ function SignatureDictionaryWorkspace({
             <div className="space-y-2">
               <input value={draftKey} onChange={e => setDraftKey(e.target.value)} className="w-full rounded-md border border-border/60 bg-transparent px-2 py-1.5 text-xs outline-none" placeholder="Key" />
               <input value={draftValue} onChange={e => setDraftValue(e.target.value)} className="w-full rounded-md border border-border/60 bg-transparent px-2 py-1.5 text-xs outline-none" placeholder="Value" />
+              {(draftKey.trim() || draftValue.trim()) && (
+                <div className="rounded-md border border-border/60 bg-muted/30 px-2 py-1.5 text-[10px] text-muted-foreground">
+                  <div className="flex items-center justify-between gap-2">
+                    <SignatureMappingBadge tag={{ key: draftKey.trim(), value: draftValue.trim() }} />
+                    {draftMapping.detail && <span className="truncate font-mono">{draftMapping.detail}</span>}
+                  </div>
+                  <p className="mt-1 leading-snug">{draftMapping.description}</p>
+                </div>
+              )}
               <button onClick={saveCustom} disabled={!draftKey.trim() || !draftValue.trim()} className="w-full rounded-md bg-primary px-2 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-40">
                 {editingIndex === null ? '추가' : '저장'}
               </button>
@@ -1961,6 +1776,7 @@ function SignatureDictionaryWorkspace({
               {showWeightSettings ? '목록 보기' : 'Weight 설정'}
             </button>
           </div>
+          <RagOpsPanel />
           {showWeightSettings ? (
             <SignatureWeightSettings
               rules={signatureWeightRules}
@@ -1979,10 +1795,15 @@ function SignatureDictionaryWorkspace({
                       <span className="font-mono text-xs text-primary">{item.key}</span>
                       <span className="text-xs text-foreground/90">{item.value}</span>
                       {item.source === 'user' && <span className="sig-tag-new text-[10px]">사용자</span>}
+                      <SignatureMappingBadge tag={item} />
                     </div>
                     <p className="mt-1 text-[10px] text-muted-foreground">
                       연결 사례 {item.caseIds.length}건 {item.caseIds.length ? `· ${item.caseIds.slice(0, 4).join(', ')}` : '· 아직 DB 연결 없음'}
                     </p>
+                    <p className="mt-1 text-[10px] text-muted-foreground">
+                      {item.mapping.detail ? `${item.mapping.detail} · ` : ''}{item.mapping.description}
+                    </p>
+                    {item.mapping.tone !== "mapped" && <SignatureMappingDetail tag={item} className="mt-2" />}
                   </button>
                   <div className="flex items-center gap-2">
                     <span className="rounded-full border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground">빈도 {item.count}</span>
@@ -2010,9 +1831,10 @@ export default function Home() {
   const [activeView, setActiveView] = useState<'issues' | 'knowledge'>('issues');
   const [selectedIssueId, setSelectedIssueId] = useState(MOCK_ISSUES[0].id);
   const [issues, setIssues] = useState(MOCK_ISSUES);
-  const [knowledgeCases, setKnowledgeCases] = useState<KnowledgeCase[]>(KNOWLEDGE_DB);
+  const [knowledgeCases, setKnowledgeCases] = useState<KnowledgeCase[]>(DEFAULT_KNOWLEDGE_CASES);
   const [importHistory, setImportHistory] = useState<ImportApprovalRecord[]>([]);
   const [customDictionarySignatures, setCustomDictionarySignatures] = useState<SignatureTag[]>([]);
+  const [signatureAliasDictionary, setSignatureAliasDictionary] = useState<SignatureAliasEntry[]>([]);
   const [signatureWeightRules, setSignatureWeightRules] = useState<SignatureWeightRule[]>(() => mergeSignatureWeightRules());
   const [knowledgeSignatureFilter, setKnowledgeSignatureFilter] = useState<{ key: string; value?: string } | null>(null);
   const [inputValue, setInputValue] = useState('');
@@ -2023,6 +1845,12 @@ export default function Home() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showRcaModal, setShowRcaModal] = useState(false);
   const [activePanel, setActivePanel] = useState<'hypotheses' | 'signatures' | 'similar' | 'summary' | 'timeline'>('summary');
+  const [userDirectory, setUserDirectory] = useState<Record<string, User>>(() => readStoredUsers());
+  const [currentUserId, setCurrentUserId] = useState(() => readStoredCurrentUserId(readStoredUsers()));
+  const [isEditingUser, setIsEditingUser] = useState(false);
+  const [userNameInput, setUserNameInput] = useState('');
+  const [userInitialsInput, setUserInitialsInput] = useState('');
+  const [persistenceAvailable, setPersistenceAvailable] = useState(false);
   const [rightPanelWidth, setRightPanelWidth] = useState(520); // resizable
   const [isAiTyping, setIsAiTyping] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -2033,6 +1861,7 @@ export default function Home() {
   const startWRef = useRef(0);
 
   const selectedIssue = issues.find(i => i.id === selectedIssueId) ?? issues[0];
+  const currentUser = userDirectory[currentUserId] ?? USERS.kim;
   const canOpenRcaDraft =
     !!selectedIssue &&
     selectedIssue.status !== 'confirmed' &&
@@ -2045,10 +1874,12 @@ export default function Home() {
       .then((snapshot) => {
         if (cancelled) return;
         setIssues(mergeIssues(MOCK_ISSUES, snapshot.issues));
-        setKnowledgeCases(mergeKnowledgeCases(KNOWLEDGE_DB, snapshot.knowledgeCases));
+        setKnowledgeCases(mergeKnowledgeCases(DEFAULT_KNOWLEDGE_CASES, snapshot.knowledgeCases));
         setCustomDictionarySignatures(snapshot.signatureDictionary);
+        setSignatureAliasDictionary(snapshot.signatureAliasDictionary);
         setSignatureWeightRules(mergeSignatureWeightRules(snapshot.signatureWeightRules));
         setImportHistory(snapshot.importResults);
+        setPersistenceAvailable(snapshot.persistenceAvailable === true);
       })
       .catch((error) => {
         toast.error('Persisted DB load failed.', { description: error instanceof Error ? error.message : String(error) });
@@ -2080,6 +1911,63 @@ export default function Home() {
     });
   };
 
+  const updateSignatureAliasDictionary = (items: SignatureAliasEntry[]) => {
+    setSignatureAliasDictionary(items);
+    saveSignatureAliases(items).catch((error) => {
+      toast.error('Signature alias save failed.', { description: error instanceof Error ? error.message : String(error) });
+    });
+  };
+
+  const approveAliasCandidate = (candidate: SignatureAliasCandidate) => {
+    const rawAlias = candidate.raw.trim();
+    if (!rawAlias) return;
+    const builtin = SIGNATURE_ALIAS_DICTIONARY.find(entry =>
+      normalizeAliasToken(entry.canonicalKey) === normalizeAliasToken(candidate.canonicalKey) &&
+      normalizeAliasToken(entry.canonicalValue) === normalizeAliasToken(candidate.canonicalValue)
+    );
+    const approvedDictionary = mergeSignatureAliasDictionaries(signatureAliasDictionary);
+    const alreadyApproved = approvedDictionary.some(entry =>
+      normalizeAliasToken(entry.canonicalKey) === normalizeAliasToken(candidate.canonicalKey) &&
+      normalizeAliasToken(entry.canonicalValue) === normalizeAliasToken(candidate.canonicalValue) &&
+      [entry.canonicalValue, ...entry.aliases].some(alias => normalizeAliasToken(alias) === normalizeAliasToken(rawAlias))
+    );
+    if (alreadyApproved) {
+      toast.info('이미 승인된 동의어입니다.');
+      return;
+    }
+
+    const existingIndex = signatureAliasDictionary.findIndex(entry =>
+      normalizeAliasToken(entry.canonicalKey) === normalizeAliasToken(candidate.canonicalKey) &&
+      normalizeAliasToken(entry.canonicalValue) === normalizeAliasToken(candidate.canonicalValue) &&
+      (entry.status ?? 'approved') === 'approved'
+    );
+    const next = [...signatureAliasDictionary];
+    if (existingIndex >= 0) {
+      const existing = next[existingIndex];
+      next[existingIndex] = {
+        ...existing,
+        aliases: Array.from(new Set([...existing.aliases, rawAlias])),
+        source: existing.source ?? 'user-approved',
+        status: 'approved',
+      };
+    } else {
+      next.push({
+        id: `alias-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        canonicalKey: candidate.canonicalKey,
+        canonicalValue: candidate.canonicalValue,
+        aliases: [rawAlias],
+        domain: builtin?.domain ?? 'rf',
+        status: 'approved',
+        confidence: candidate.score,
+        source: 'user-approved',
+        conceptId: builtin?.conceptId,
+        valueId: builtin?.valueId,
+      });
+    }
+    updateSignatureAliasDictionary(next);
+    toast.success('동의어가 승인되었습니다.', { description: `${rawAlias} → ${candidate.canonicalKey}:${candidate.canonicalValue}` });
+  };
+
   const updateSignatureWeightRules = (items: SignatureWeightRule[]) => {
     const merged = mergeSignatureWeightRules(items);
     setSignatureWeightRules(merged);
@@ -2088,11 +1976,39 @@ export default function Home() {
     });
   };
 
+  const openUserEditor = () => {
+    setUserNameInput(currentUser.name);
+    setUserInitialsInput(currentUser.initials);
+    setIsEditingUser(true);
+  };
+
+  const applyCurrentUser = () => {
+    const name = userNameInput.trim();
+    if (!name) {
+      toast.error('사용자 이름을 입력해주세요.');
+      return;
+    }
+    const id = makeUserId(name);
+    const nextUser: User = {
+      id,
+      name,
+      initials: (userInitialsInput.trim() || makeInitials(name)).slice(0, 3).toUpperCase(),
+      role: 'junior',
+      color: userDirectory[id]?.color ?? colorForUserId(id),
+    };
+    const nextDirectory = { ...userDirectory, [id]: nextUser };
+    setUserDirectory(nextDirectory);
+    setCurrentUserId(id);
+    persistUserSelection(nextDirectory, id);
+    setIsEditingUser(false);
+    toast.success('현재 사용자를 변경했습니다.', { description: nextUser.name });
+  };
+
   const handleCreateIssue = async (input: CreateIssueInput) => {
     const id = nextIssueId(issues);
     const now = new Date();
     const seedText = `${input.title}\n${input.band}\n${input.observation}`;
-    const extracted = mergeSignatures([{ key: 'Band', value: input.band, isNew: true }], extractRfSignatures(seedText));
+    const extracted = mergeSignatures([{ key: 'Band', value: input.band, isNew: true }], extractRfSignatures(seedText, signatureAliasDictionary), signatureAliasDictionary);
     const messages: Message[] = [
       {
         id: `m-${Date.now()}-system`,
@@ -2105,7 +2021,7 @@ export default function Home() {
       messages.push({
         id: `m-${Date.now()}-user`,
         type: 'user',
-        userId: 'kim',
+        userId: currentUser.id,
         content: input.observation,
         timestamp: now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
       });
@@ -2117,7 +2033,7 @@ export default function Home() {
       band: input.band,
       status: 'new',
       createdAt: now.toISOString().slice(0, 10),
-      assignee: 'kim',
+      assignee: currentUser.id,
       messages,
       signatures: extracted,
       hypotheses: [],
@@ -2146,6 +2062,46 @@ export default function Home() {
     try {
       await replaceIssues(nextIssues.map(toPersistableIssue));
       toast.success('이슈 목록에서 삭제했습니다.', { description: 'Knowledge DB는 변경하지 않았습니다.' });
+    } catch (error) {
+      setIssues(previousIssues);
+      setSelectedIssueId(selectedIssueId);
+      toast.error('이슈 목록 삭제 저장에 실패했습니다.', { description: error instanceof Error ? error.message : String(error) });
+    }
+  };
+
+  const handleRemoveIssueFromListWithRiskConfirm = async (issue: Issue) => {
+    const isConfirmedIssue = issue.status === 'confirmed';
+    if (isConfirmedIssue) {
+      const confirmed = window.confirm(`${issue.id}를 이슈 목록에서 삭제할까요?\nKnowledge DB 사례는 삭제되지 않습니다.`);
+      if (!confirmed) return;
+    } else {
+      const riskAccepted = window.confirm(
+        `${issue.id}는 확정 사례가 아니므로 Knowledge DB에 저장된 사례가 아닙니다.\n삭제하면 현재 이슈 목록과 진행 중 분석 기록에서 제거됩니다.`
+      );
+      if (!riskAccepted) return;
+      const finalAccepted = window.confirm('정말 삭제할까요? 이 작업은 현재 이슈 목록에서 제거됩니다.');
+      if (!finalAccepted) return;
+    }
+
+    const previousIssues = issues;
+    const nextIssues = issues.filter(item => item.id !== issue.id);
+    setIssues(nextIssues);
+    if (selectedIssueId === issue.id) {
+      setSelectedIssueId(nextIssues[0]?.id ?? '');
+    }
+
+    try {
+      await replaceIssues(nextIssues.map(toPersistableIssue));
+      const sessionOnly = persistenceAvailable ? '' : ' 현재 세션에만 반영됩니다.';
+      if (isConfirmedIssue) {
+        toast.success('이슈 목록에서 삭제했습니다.', { description: `Knowledge DB는 변경하지 않았습니다.${sessionOnly}` });
+      } else {
+        const statusLabel = ISSUE_DELETE_STATUS_LABEL[issue.status] ?? issue.status;
+        const description = issue.status === 'archived'
+          ? `Knowledge DB는 변경하지 않았습니다.${sessionOnly}`
+          : `Knowledge DB에 저장된 사례는 없었습니다.${sessionOnly}`;
+        toast.success(`${statusLabel} 이슈를 목록에서 삭제했습니다.`, { description });
+      }
     } catch (error) {
       setIssues(previousIssues);
       setSelectedIssueId(selectedIssueId);
@@ -2249,13 +2205,15 @@ export default function Home() {
           quotedSource: quotedText?.source,
           attachments: attachmentContext,
           signatureWeightRules,
+          knowledgeCases,
+          signatureAliasDictionary,
         })
       : { content: "", extractedTags: [] as SignatureTag[], source: 'fallback' as AnalysisSource, evidencePacket: undefined };
     const localHypotheses = analysis.evidencePacket ? buildLocalHybridHypotheses(analysis.evidencePacket) : [];
     const newMsg: Message = {
       id: `m-${Date.now()}`,
       type: 'user',
-      userId: 'kim',
+      userId: currentUser.id,
       content: content.trim() || (pendingAttachments.length > 0 ? '첨부 자료를 추가했습니다.' : `> 인용 (${quotedText?.source}): "${quotedText?.text}"`),
       attachments: attachmentContext,
       pendingAliasCandidates: analysis.evidencePacket?.pendingAliasCandidates,
@@ -2275,7 +2233,7 @@ export default function Home() {
         ? {
             ...iss,
             messages: [...iss.messages, newMsg],
-            signatures: useRfLocalFallback ? mergeSignatures(iss.signatures, analysis.extractedTags) : iss.signatures,
+            signatures: useRfLocalFallback ? mergeSignatures(iss.signatures, analysis.extractedTags, signatureAliasDictionary) : iss.signatures,
             hypotheses: localHypotheses.length > 0 ? localHypotheses : iss.hypotheses,
             chatSummary: localSummary ?? iss.chatSummary,
           }
@@ -2300,7 +2258,7 @@ export default function Home() {
             model: selectedIssue.model,
             band: selectedIssue.band,
             quotedSource: quotedText?.source,
-            sharedAnalysisContext: buildSharedAnalysisContext(selectedIssue, signatureWeightRules),
+            sharedAnalysisContext: buildSharedAnalysisContext(selectedIssue, signatureWeightRules, knowledgeCases, signatureAliasDictionary),
             localEvidencePacket: analysis.evidencePacket,
           },
           materials: attachmentContext.map(att => ({
@@ -2352,7 +2310,7 @@ export default function Home() {
           ? {
               ...iss,
               messages: [...iss.messages, aiReply],
-              signatures: mergeSignatures(iss.signatures, llmAnalysis.extractedTags),
+              signatures: mergeSignatures(iss.signatures, llmAnalysis.extractedTags, signatureAliasDictionary),
             }
           : iss
       ));
@@ -2416,9 +2374,46 @@ export default function Home() {
         <div className="flex items-center gap-2">
           <ThemeToggleButton />
 
-          <div className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-accent transition-colors cursor-pointer"
+          <div className="relative">
+            <button
+              type="button"
+              className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-accent transition-colors"
+              onClick={openUserEditor}
+              title="현재 사용자 변경"
+            >
+              <UserAvatar user={currentUser} size="sm" />
+              <span className="text-xs text-muted-foreground">{currentUser.name}</span>
+            </button>
+            {isEditingUser && (
+              <div className="absolute right-0 top-9 z-50 w-64 rounded-lg border border-border/70 p-3 shadow-lg" style={{ background: 'var(--card)' }}>
+                <p className="mb-2 text-[10px] font-semibold text-muted-foreground">현재 사용자 변경</p>
+                <input
+                  value={userNameInput}
+                  onChange={event => setUserNameInput(event.target.value)}
+                  placeholder="사용자 이름"
+                  className="mb-2 w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground outline-none focus:border-primary"
+                />
+                <input
+                  value={userInitialsInput}
+                  onChange={event => setUserInitialsInput(event.target.value)}
+                  placeholder="이니셜 선택 입력"
+                  className="mb-3 w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground outline-none focus:border-primary"
+                />
+                <div className="flex justify-end gap-2">
+                  <button type="button" onClick={() => setIsEditingUser(false)} className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent">
+                    취소
+                  </button>
+                  <button type="button" onClick={applyCurrentUser} className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground">
+                    적용
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="hidden items-center gap-2 px-2 py-1 rounded-lg hover:bg-accent transition-colors cursor-pointer"
             onClick={() => toast.info('단독 분석 모드입니다.')}>
-            <UserAvatar userId="kim" size="sm" />
+            <UserAvatar user={currentUser} size="sm" />
             <span className="text-xs text-muted-foreground">단독 분석자</span>
           </div>
         </div>
@@ -2429,6 +2424,7 @@ export default function Home() {
           signatureFilter={knowledgeSignatureFilter}
           knowledgeCases={knowledgeCases}
           customSignatures={customDictionarySignatures}
+          signatureAliasDictionary={signatureAliasDictionary}
           signatureWeightRules={signatureWeightRules}
           onChangeSignatureWeightRules={updateSignatureWeightRules}
           onChangeCustomSignatures={updateCustomDictionarySignatures}
@@ -2476,7 +2472,7 @@ export default function Home() {
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation();
-                      void handleRemoveIssueFromList(issue);
+                      void handleRemoveIssueFromListWithRiskConfirm(issue);
                     }}
                     className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
                     aria-label={`${issue.id} 이슈 목록에서 삭제`}
@@ -2547,7 +2543,8 @@ export default function Home() {
                 >
                   <ChatMessage
                     msg={msg}
-                    onQuote={(text, source) => setQuotedText({ text, source })}
+                    users={userDirectory}
+                    onApproveAlias={approveAliasCandidate}
                     onReply={(target) => {
                       setReplyingTo(target);
                       setQuotedText({ text: target.content.slice(0, 160), source: target.type === 'ai' ? 'RF 분석 도우미' : '사용자 입력' });
@@ -2690,7 +2687,7 @@ export default function Home() {
               { key: 'similar', label: '유사', icon: Search },
               { key: 'summary', label: '요약', icon: FileText },
               { key: 'timeline', label: '이벤트', icon: Activity },
-            ] as const).map(({ key, label, icon: Icon }) => (
+            ] as const).filter(item => item.key !== 'timeline').map(({ key, label, icon: Icon }) => (
               <button key={key} onClick={() => setActivePanel(key)}
                 className={cn(
                   "flex-1 flex items-center justify-center gap-1 py-2 text-xs font-medium transition-colors border-b-2",
@@ -2708,10 +2705,6 @@ export default function Home() {
               {activePanel === 'hypotheses' && (
                 <HypothesisDetailPanel
                   hypotheses={selectedIssue.hypotheses}
-                  onQuoteToChat={(text, source) => {
-                    setQuotedText({ text, source });
-                    toast.success(`"${source}" 내용이 채팅 인용으로 추가되었습니다.`);
-                  }}
                 />
               )}
               {activePanel === 'signatures' && (
@@ -2721,21 +2714,15 @@ export default function Home() {
                   onUpdate={(sigs) => setIssues(prev => prev.map(iss =>
                     iss.id === selectedIssueId ? { ...iss, signatures: sigs } : iss
                   ))}
-                  onQuoteToChat={(text, source) => {
-                    setQuotedText({ text, source });
-                    toast.success(`"${source}" 내용이 채팅 인용으로 추가되었습니다.`);
-                  }}
                 />
               )}
               {activePanel === 'similar' && (
                 <motion.div key="similar" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}>
                   <SimilarCasesPanel
                     signatures={selectedIssue.signatures}
+                    knowledgeCases={knowledgeCases}
+                    signatureAliasDictionary={signatureAliasDictionary}
                     signatureWeightRules={signatureWeightRules}
-                    onQuoteToChat={(text, source) => {
-                      setQuotedText({ text, source });
-                      toast.success(`"${source}" 내용이 채팅 인용으로 추가되었습니다.`);
-                    }}
                   />
                 </motion.div>
               )}

@@ -1,0 +1,15 @@
+{
+  "project": "RF Failure Intelligence Platform UX",
+  "phase": "rf-fip-rag-ops-ui",
+  "goal": "Expose RAG ops report as a read-only server API and user-triggered admin UI action.",
+  "status": "completed",
+  "steps": [
+    {
+      "step": 1,
+      "name": "manual-rag-ops-check-ui",
+      "status": "completed",
+      "verdict": "PASS_WITH_RISK",
+      "summary": "Added read-only RAG ops API, refactored CLI to reuse server report logic, and added Signature Dictionary UI button/result panel."
+    }
+  ]
+}

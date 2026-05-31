@@ -38,5 +38,13 @@ assert(packet.evidence.some(item => item.type === "classification"), "Classifica
 assert(packet.evidence.some(item => item.type === "diagnostic_test"), "Diagnostic test evidence is missing.");
 assert(Array.isArray(packet.missingInfo), "Missing info must be an array.");
 assert(reply.evidencePacket.version === 1, "Local reply did not include an evidence packet.");
+assert(
+  JSON.stringify(reply.extractedTags) === JSON.stringify(reply.evidencePacket.extractedTags),
+  "Local reply should expose the same extracted tags as its evidence packet."
+);
+assert(
+  reply.content.includes(reply.evidencePacket.classification),
+  "Local reply content should be generated from the evidence packet classification."
+);
 
 console.log("RF-FIP evidence packet smoke passed.");

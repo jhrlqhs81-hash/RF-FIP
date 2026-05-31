@@ -13,6 +13,21 @@ interface ZipEntry {
 }
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const DEFAULT_IMPORT_CASE_HEADERS = ["caseid", "id", "issueid", "title", "casetitle", "symptom", "rootcause"];
+const DEFAULT_IMPORT_TITLE_HEADERS = ["title", "casetitle", "caseid", "id", "issueid"];
+const DEFAULT_IMPORT_TEXT_BOUNDARY = /^(---+|case\s*:|ISS-\d|KB-\d|\d+[.)]\s+)/i;
+
+export interface ImportParserProfile {
+  caseHeaders: string[];
+  titleHeaders: string[];
+  textBoundary: RegExp;
+}
+
+export const DEFAULT_IMPORT_PARSER_PROFILE: ImportParserProfile = {
+  caseHeaders: DEFAULT_IMPORT_CASE_HEADERS,
+  titleHeaders: DEFAULT_IMPORT_TITLE_HEADERS,
+  textBoundary: DEFAULT_IMPORT_TEXT_BOUNDARY,
+};
 
 function makeImportId(prefix: string, sequence = 0): string {
   return `${prefix}-${Date.now()}-${sequence}-${Math.random().toString(36).slice(2, 8)}`;
@@ -78,12 +93,17 @@ function makeFileMaterial(file: File): ChatAttachment {
   };
 }
 
-function rowsToSources(file: File, rows: string[][], materialName = file.name): ParsedImportSource[] {
+function rowsToSources(
+  file: File,
+  rows: string[][],
+  materialName = file.name,
+  profile: ImportParserProfile = DEFAULT_IMPORT_PARSER_PROFILE,
+): ParsedImportSource[] {
   const headers = rows[0] ?? [];
   const headerKeys = headers.map(normalizeHeader);
-  const hasCaseColumns = headerKeys.some(key => ["caseid", "id", "issueid", "title", "casetitle", "symptom", "rootcause"].includes(key));
+  const hasCaseColumns = headerKeys.some(key => profile.caseHeaders.includes(key));
   if (rows.length >= 2 && hasCaseColumns) {
-    const titleIndex = headerKeys.findIndex(key => ["title", "casetitle", "caseid", "id", "issueid"].includes(key));
+    const titleIndex = headerKeys.findIndex(key => profile.titleHeaders.includes(key));
     return rows.slice(1).map((row, index) => ({
       title: titleIndex >= 0 ? row[titleIndex] : `${materialName} row ${index + 1}`,
       text: headers.map((header, cellIndex) => `${header}: ${row[cellIndex] ?? ""}`).join("\n"),
@@ -120,11 +140,16 @@ function asRawText(item: unknown): string {
   return String(item ?? "");
 }
 
-function splitTextSections(file: File, text: string, sourceMaterial: ChatAttachment): ParsedImportSource[] {
+function splitTextSections(
+  file: File,
+  text: string,
+  sourceMaterial: ChatAttachment,
+  profile: ImportParserProfile = DEFAULT_IMPORT_PARSER_PROFILE,
+): ParsedImportSource[] {
   const sections: string[] = [];
   let current: string[] = [];
   for (const line of text.split(/\r?\n/)) {
-    const boundary = /^(---+|case\s*:|ISS-\d|KB-\d|\d+[.)]\s+)/i.test(line.trim());
+    const boundary = profile.textBoundary.test(line.trim());
     if (boundary && current.join("\n").trim()) {
       sections.push(current.join("\n").trim());
       current = [line];
@@ -261,7 +286,7 @@ function parseSheetRows(sheetXml: string, sharedStrings: string[]): string[][] {
   }).filter(row => row.some(Boolean));
 }
 
-async function readXlsxFile(file: File): Promise<ParsedImportSource[]> {
+async function readXlsxFile(file: File, profile: ImportParserProfile = DEFAULT_IMPORT_PARSER_PROFILE): Promise<ParsedImportSource[]> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const xmlFiles = await loadZipTextMap(bytes);
   const workbookXml = xmlFiles.get("xl/workbook.xml");
@@ -273,7 +298,7 @@ async function readXlsxFile(file: File): Promise<ParsedImportSource[]> {
     if (!sheetXml) return [];
     const rows = parseSheetRows(sheetXml, sharedStrings);
     if (!rows.length) return [];
-    return rowsToSources(file, rows, `${file.name} / ${sheet.name}`);
+    return rowsToSources(file, rows, `${file.name} / ${sheet.name}`, profile);
   });
   return sources.length ? sources : [{
     title: file.name,
@@ -282,9 +307,9 @@ async function readXlsxFile(file: File): Promise<ParsedImportSource[]> {
   }];
 }
 
-export async function readImportFile(file: File): Promise<ParsedImportSource[]> {
+export async function readImportFile(file: File, profile: ImportParserProfile = DEFAULT_IMPORT_PARSER_PROFILE): Promise<ParsedImportSource[]> {
   const lowerName = file.name.toLowerCase();
-  if (lowerName.endsWith(".xlsx")) return readXlsxFile(file);
+  if (lowerName.endsWith(".xlsx")) return readXlsxFile(file, profile);
   if (lowerName.endsWith(".xls")) {
     return [{
       title: file.name,
@@ -308,7 +333,7 @@ export async function readImportFile(file: File): Promise<ParsedImportSource[]> 
 
   if (/\.(csv|tsv)$/i.test(file.name)) {
     const delimiter = lowerName.endsWith(".tsv") ? "\t" : ",";
-    return rowsToSources(file, parseDelimitedTable(text, delimiter));
+    return rowsToSources(file, parseDelimitedTable(text, delimiter), file.name, profile);
   }
 
   if (/\.json$/i.test(file.name)) {
@@ -325,7 +350,7 @@ export async function readImportFile(file: File): Promise<ParsedImportSource[]> 
     }
   }
 
-  if (/\.(txt|md)$/i.test(file.name)) return splitTextSections(file, text, sourceMaterial);
+  if (/\.(txt|md)$/i.test(file.name)) return splitTextSections(file, text, sourceMaterial, profile);
 
   return [{ title: file.name, text, materials: [sourceMaterial] }];
 }

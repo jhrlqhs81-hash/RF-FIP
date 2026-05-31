@@ -19,6 +19,7 @@ import {
 import { Issue } from "@/lib/mockData";
 import { classifyDesenseCase } from "@/lib/rfDesenseTaxonomy";
 import { buildCaseDetailFromIssue } from "@/components/CaseDetailView";
+import { getSignatureMappingStatus, SignatureMappingInspector } from "@/components/SignatureMapping";
 import { toast } from "sonner";
 
 function summaryText(item: string | { text: string }) {
@@ -223,11 +224,19 @@ export function RcaSummaryModal({ issue, onClose, onSubmit, onApprove }: RcaSumm
                 <Tag className="h-3.5 w-3.5 text-primary" />
                 Signature
               </p>
-              <div className="flex flex-wrap gap-1.5">
+              {issue.signatures.some(sig => getSignatureMappingStatus(sig).tone !== "mapped") && (
+                <p className="mb-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                  미매핑 또는 부분 매핑 Signature가 있습니다. DB 등록은 가능하지만 Local Engine/RAG 활용 품질이 제한될 수 있습니다.
+                </p>
+              )}
+              <div className="grid gap-2 md:grid-cols-2">
                 {issue.signatures.map((sig, index) => (
-                  <span key={`${sig.key}-${sig.value}-${index}`} className={sig.isNew ? "sig-tag-new" : "sig-tag"}>
-                    {sig.key}: {sig.value}
-                  </span>
+                  <div key={`${sig.key}-${sig.value}-${index}`} className="rounded-lg border border-border/60 p-2" style={{ background: "var(--panel-surface)" }}>
+                    <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                      <span className={sig.isNew ? "sig-tag-new" : "sig-tag"}>{sig.key}: {sig.value}</span>
+                    </div>
+                    <SignatureMappingInspector tag={sig} />
+                  </div>
                 ))}
               </div>
             </section>

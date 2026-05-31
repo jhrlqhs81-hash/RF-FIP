@@ -113,6 +113,23 @@ try {
   const loadedDictionary = await request("/api/signature-dictionary");
   assert(loadedDictionary.items?.[0]?.key === "structure", "Signature dictionary GET mismatch.");
 
+  const aliasDictionary = [{
+    canonicalKey: "Contact Structure",
+    canonicalValue: "Back Glass",
+    aliases: ["rear-window"],
+    domain: "mechanical",
+    status: "approved",
+    confidence: 0.9,
+    source: "user-approved",
+  }];
+  const savedAliases = await request("/api/signature-aliases", {
+    method: "PUT",
+    body: JSON.stringify({ items: aliasDictionary }),
+  });
+  assert(savedAliases.items?.length === 1, "Signature alias PUT count mismatch.");
+  const loadedAliases = await request("/api/signature-aliases");
+  assert(loadedAliases.items?.[0]?.aliases?.[0] === "rear-window", "Signature alias GET mismatch.");
+
   const importResult = {
     id: "smoke-import-1",
     createdAt: new Date().toISOString(),

@@ -1,0 +1,15 @@
+{
+  "project": "RF Failure Intelligence Platform UX",
+  "phase": "rf-fip-rag-maintenance-governance",
+  "goal": "Add RAG maintenance guardrails for RF Wiki metadata freshness, provider safety, and golden query retrieval quality.",
+  "status": "completed",
+  "steps": [
+    {
+      "step": 1,
+      "name": "rag-maintenance-smoke",
+      "status": "completed",
+      "verdict": "PASS_WITH_RISK",
+      "summary": "Added RF Wiki maintenance metadata, snippet metadata passthrough, golden query smoke, and docs. Browser click-through is not applicable to this server/docs check."
+    }
+  ]
+}

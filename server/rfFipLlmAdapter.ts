@@ -1,3 +1,6 @@
+import { classifyCoreRfTriage, extractCoreRfSignatures } from "../shared/rfFipRuleCatalog";
+import { retrieveKnowledgeContext } from "./rfFipRag";
+
 export type LlmProvider = "local" | "gauss" | "openai";
 
 export type LlmTask =
@@ -142,53 +145,15 @@ function enforceSignatureDedupe(result: Record<string, unknown>, request: LlmReq
 }
 
 function extractLocalSignatures(text: string): Array<{ key: string; value: string; isNew: true }> {
-  const signatures: Array<{ key: string; value: string; isNew: true }> = [];
-  const add = (key: string, value?: string) => {
-    if (!value) return;
-    if (!signatures.some(item => item.key.toLowerCase() === key.toLowerCase() && item.value.toLowerCase() === value.toLowerCase())) {
-      signatures.push({ key, value, isNew: true });
-    }
-  };
-
-  const band = /\b((?:B|n)\d{1,3})\b/i.exec(text)?.[1];
-  add("Band", band?.toUpperCase());
-
-  const degradation = /(\d+(?:\.\d+)?)\s*dB(?!m)/i.exec(text)?.[1];
-  add("Degradation (dB)", degradation ? `${degradation}dB` : undefined);
-
-  const txPower = /(?:tx|ul|transmit|power)[^\d]{0,16}(\d+(?:\.\d+)?)\s*dBm/i.exec(text)?.[1];
-  add("Tx Power", txPower ? `${txPower}dBm` : undefined);
-  if (/tx|ul|dBm|pim|im3|im5/i.test(text)) add("Tx Correlated", "True");
-  if (/conducted|cable/i.test(text)) add("Conducted Result", /normal|pass/i.test(text) ? "Normal" : "Check required");
-  if (/ota|tis|eis|chamber/i.test(text)) add("OTA Result", /fail|degrad|drop/i.test(text) ? "Fail" : "Check required");
-  if (/im3|im5|pim|intermod/i.test(text)) add("Desense Category", "TX-induced PIM Desense");
-  if (/display|mipi|camera|usb|ddr|pmic|dcdc|dc-dc/i.test(text)) add("Desense Category", "Internal Desense / Spurious");
-  if (/shield|clip|screw|spring|bracket|contact/i.test(text)) add("Contact Structure", "Mechanical Contact");
-
-  return signatures;
+  return extractCoreRfSignatures(text).map(signature => ({
+    key: signature.key,
+    value: signature.value,
+    isNew: true,
+  }));
 }
 
 function classifyLocal(text: string, signatures: Array<{ key: string; value: string }>) {
-  const haystack = `${text} ${signatures.map(item => `${item.key} ${item.value}`).join(" ")}`.toLowerCase();
-  if (/pim|im3|im5|intermod|contact|shield|clip/.test(haystack)) {
-    return {
-      category: "TX-induced PIM Desense",
-      mechanism: "Contact nonlinearity or intermodulation product",
-      diagnosticTests: ["Tx power sweep", "IM3/IM5 frequency check", "Pressure/contact A/B test"],
-    };
-  }
-  if (/display|mipi|pmic|dcdc|spur|harmonic/.test(haystack)) {
-    return {
-      category: "Internal Desense / Spurious",
-      mechanism: "Internal high-speed or power noise coupling into Rx path",
-      diagnosticTests: ["Function ON/OFF A/B", "Near-field scan", "Harmonic frequency map"],
-    };
-  }
-  return {
-    category: "RF Desense Triage",
-    mechanism: "Insufficient evidence for a narrower local classification",
-    diagnosticTests: ["Conducted baseline", "OTA reproduction", "Band/channel sweep"],
-  };
+  return classifyCoreRfTriage(text, signatures);
 }
 
 function openAiModel(): string {
@@ -232,6 +197,24 @@ function buildExistingSignatureGuard(request: LlmRequestDto): Record<string, unk
   };
 }
 
+function withRetrievedKnowledgeContext(request: LlmRequestDto, activeProvider: LlmProvider): LlmRequestDto {
+  const retrievedKnowledgeContext = retrieveKnowledgeContext({
+    provider: activeProvider,
+    task: request.task,
+    text: request.text,
+    context: request.context,
+    signatures: request.signatures,
+    maxSnippets: activeProvider === "openai" ? 4 : 6,
+  });
+  return {
+    ...request,
+    context: {
+      ...(request.context ?? {}),
+      retrievedKnowledgeContext,
+    },
+  };
+}
+
 function buildOpenAiInstructions(task: LlmTask): string {
   return [
     "You are an RF-FIP analysis assistant for RF desense, PIM, OTA, conducted, and signature triage.",
@@ -239,6 +222,10 @@ function buildOpenAiInstructions(task: LlmTask): string {
     "Always return JSON matching the requested task shape.",
     `Current task: ${task}.`,
     "Use rfKnowledgeContext as reference guidance only; measured user input and local evidence packets are the source of truth.",
+    "Use context.retrievedKnowledgeContext snippets as provider-filtered reference guidance only.",
+    "When retrievedKnowledgeContext snippets influence the answer, return their wiki ids in usedWikiSourceIds.",
+    "When confirmed Knowledge case excerpts influence the answer, return their ids in usedKnowledgeCaseSourceIds.",
+    "Knowledge case excerpts are confirmed-case references only; they cannot create new measurements, new root causes, or evidence IDs.",
     "Do not invent measurements, test outcomes, root causes, or evidence IDs.",
     "For extractedTags and signatures, compare against existingSignatureGuard and return only new key/value pairs.",
     "If an existing signature is relevant, mention it in content, reasons, or rationale instead of repeating it as a new signature.",
@@ -328,6 +315,8 @@ function openAiJsonSchema(): Record<string, unknown> {
           rationale: { type: "array", items: { type: "string" } },
         },
       },
+      usedWikiSourceIds: { type: "array", items: { type: "string" } },
+      usedKnowledgeCaseSourceIds: { type: "array", items: { type: "string" } },
       summary: { type: "string" },
     },
   };
@@ -425,6 +414,18 @@ async function openAiResult(request: LlmRequestDto): Promise<Record<string, unkn
 
 function localResult(request: LlmRequestDto): Record<string, unknown> {
   const text = request.text ?? "";
+  const retrievedKnowledgeContext = isRecord(request.context?.retrievedKnowledgeContext)
+    ? request.context.retrievedKnowledgeContext
+    : undefined;
+  const retrievedSnippets = retrievedKnowledgeContext && Array.isArray((retrievedKnowledgeContext as { snippets?: unknown }).snippets)
+    ? (retrievedKnowledgeContext as { snippets: Array<{ id?: unknown; title?: unknown; sourceType?: unknown }> }).snippets
+    : [];
+  const usedWikiSourceIds = retrievedSnippets.flatMap(item =>
+    typeof item.id === "string" && item.sourceType !== "knowledge-case-excerpt" ? [item.id] : [],
+  );
+  const usedKnowledgeCaseSourceIds = retrievedSnippets.flatMap(item =>
+    typeof item.id === "string" && item.sourceType === "knowledge-case-excerpt" ? [item.id] : [],
+  );
   const extracted = filterNewSignatures(extractLocalSignatures(text), request);
   const signatures = uniq([...(request.signatures ?? []), ...extracted].map(item => `${item.key}|||${item.value}`))
     .map(item => {
@@ -440,6 +441,11 @@ function localResult(request: LlmRequestDto): Record<string, unknown> {
         `Mechanism: ${classification.mechanism}`,
         `Next checks: ${classification.diagnosticTests.join(", ")}`,
       ].join("\n"),
+      classification: classification.category,
+      mechanism: classification.mechanism,
+      diagnosticTests: classification.diagnosticTests,
+      usedWikiSourceIds,
+      usedKnowledgeCaseSourceIds,
       extractedTags: extracted,
     };
   }
@@ -459,6 +465,8 @@ function localResult(request: LlmRequestDto): Record<string, unknown> {
         rootCause: classification.mechanism,
         diagnosticTests: classification.diagnosticTests,
         rationale: [`Local deterministic provider only`, `Category: ${classification.category}`],
+        usedWikiSourceIds,
+        usedKnowledgeCaseSourceIds,
       },
     };
   }
@@ -480,18 +488,19 @@ export async function runRfFipLlm(request: LlmRequestDto): Promise<LlmResponseDt
   if (activeProvider === "gauss") {
     throw new GaussBlockedError(requiredGaussGaps());
   }
+  const preparedRequest = withRetrievedKnowledgeContext(request, activeProvider);
 
   if (activeProvider === "openai") {
     return {
       provider: "openai",
-      task: request.task,
-      result: await openAiResult(request),
+      task: preparedRequest.task,
+      result: await openAiResult(preparedRequest),
     };
   }
 
   return {
     provider: "local",
-    task: request.task,
-    result: localResult(request),
+    task: preparedRequest.task,
+    result: localResult(preparedRequest),
   };
 }

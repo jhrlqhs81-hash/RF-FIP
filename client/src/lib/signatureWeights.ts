@@ -1,5 +1,10 @@
 import type { SignatureTag } from "./mockData";
 import { normalizeSignatureKeyComparable } from "./signatureAliasResolver";
+import {
+  describeSignatureConcept,
+  resolveSignatureConceptKey,
+  signatureConceptKeyComparable,
+} from "./signatureConceptRegistry";
 
 export interface SignatureWeightRule {
   id: string;
@@ -268,13 +273,25 @@ function normalizeRule(rule: SignatureWeightRule): SignatureWeightRule {
 }
 
 export function mergeSignatureWeightRules(persisted: SignatureWeightRule[] = []): SignatureWeightRule[] {
-  const byKey = new Map(DEFAULT_SIGNATURE_WEIGHT_RULES.map(rule => [
-    normalizeSignatureKeyComparable(rule.signatureKey).toLowerCase(),
-    normalizeRule(rule),
-  ]));
+  const byKey = new Map<string, SignatureWeightRule>();
+  for (const rule of DEFAULT_SIGNATURE_WEIGHT_RULES) {
+    const normalizedKey = signatureConceptKeyComparable(rule.signatureKey).toLowerCase();
+    const existing = byKey.get(normalizedKey);
+    const conceptKey = resolveSignatureConceptKey(rule.signatureKey)?.key;
+    const incomingIsPrimary = conceptKey
+      ? normalizeSignatureKeyComparable(conceptKey).toLowerCase() === normalizeSignatureKeyComparable(rule.signatureKey).toLowerCase()
+      : true;
+    const existingConceptKey = existing ? resolveSignatureConceptKey(existing.signatureKey)?.key : undefined;
+    const existingIsPrimary = existing && existingConceptKey
+      ? normalizeSignatureKeyComparable(existingConceptKey).toLowerCase() === normalizeSignatureKeyComparable(existing.signatureKey).toLowerCase()
+      : !!existing;
+    if (!existing || incomingIsPrimary || !existingIsPrimary) {
+      byKey.set(normalizedKey, normalizeRule(rule));
+    }
+  }
   for (const rule of persisted) {
     if (!rule?.signatureKey) continue;
-    const normalizedKey = normalizeSignatureKeyComparable(rule.signatureKey).toLowerCase();
+    const normalizedKey = signatureConceptKeyComparable(rule.signatureKey).toLowerCase();
     const base = byKey.get(normalizedKey);
     byKey.set(normalizedKey, normalizeRule({
       ...(base ?? {
@@ -292,9 +309,9 @@ export function mergeSignatureWeightRules(persisted: SignatureWeightRule[] = [])
 }
 
 export function getSignatureWeightRule(signatureKey: string, rules: SignatureWeightRule[] = DEFAULT_SIGNATURE_WEIGHT_RULES): SignatureWeightRule {
-  const normalizedKey = normalizeSignatureKeyComparable(signatureKey).toLowerCase();
+  const normalizedKey = signatureConceptKeyComparable(signatureKey).toLowerCase();
   const match = mergeSignatureWeightRules(rules).find(rule =>
-    normalizeSignatureKeyComparable(rule.signatureKey).toLowerCase() === normalizedKey
+    signatureConceptKeyComparable(rule.signatureKey).toLowerCase() === normalizedKey
   );
   return match ?? {
     id: `sig-weight-${normalizedKey}`,
@@ -309,6 +326,11 @@ export function getSignatureWeightRule(signatureKey: string, rules: SignatureWei
   };
 }
 
+export function getSignatureWeightRuleForTag(signature: SignatureTag, rules: SignatureWeightRule[] = DEFAULT_SIGNATURE_WEIGHT_RULES): SignatureWeightRule {
+  const concept = describeSignatureConcept(signature);
+  return getSignatureWeightRule(concept?.key ?? signature.key, rules);
+}
+
 export function getSignatureGroupWeight(
   signatureKey: string,
   group: "analysis" | "retrieval" | "workflow",
@@ -321,13 +343,32 @@ export function getSignatureGroupWeight(
   return rule.workflowWeight;
 }
 
+export function getSignatureTagGroupWeight(
+  signature: SignatureTag,
+  group: "analysis" | "retrieval" | "workflow",
+  rules?: SignatureWeightRule[],
+): number {
+  const rule = getSignatureWeightRuleForTag(signature, rules);
+  if (!rule.enabled) return 0;
+  if (group === "analysis") return rule.analysisWeight;
+  if (group === "retrieval") return rule.retrievalWeight;
+  return rule.workflowWeight;
+}
+
 export function weightedSignatureContext(signatures: SignatureTag[], rules?: SignatureWeightRule[]) {
   return signatures
     .map(signature => {
-      const rule = getSignatureWeightRule(signature.key, rules);
+      const concept = describeSignatureConcept(signature);
+      const rule = getSignatureWeightRuleForTag(signature, rules);
       return {
         key: signature.key,
         value: signature.value,
+        canonicalKey: concept?.key ?? normalizeSignatureKeyComparable(signature.key),
+        canonicalValue: concept?.value ?? signature.value,
+        conceptId: concept?.conceptId,
+        valueId: "valueId" in (concept ?? {}) ? concept?.valueId : undefined,
+        domain: concept?.domain,
+        conceptPath: concept?.path,
         analysisWeight: rule.enabled ? rule.analysisWeight : 0,
         retrievalWeight: rule.enabled ? rule.retrievalWeight : 0,
         workflowWeight: rule.enabled ? rule.workflowWeight : 0,

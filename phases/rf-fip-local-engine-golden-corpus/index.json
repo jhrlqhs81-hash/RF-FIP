@@ -1,0 +1,15 @@
+{
+  "project": "RF Failure Intelligence Platform UX",
+  "phase": "rf-fip-local-engine-golden-corpus",
+  "goal": "Improve Local Engine deterministic RF understanding with clean Korean/English rules and a golden corpus regression gate.",
+  "status": "completed",
+  "steps": [
+    {
+      "step": 1,
+      "name": "korean-english-rf-golden-corpus",
+      "status": "completed",
+      "verdict": "PASS_WITH_RISK",
+      "summary": "Cleaned shared RF rule catalog and taxonomy text, added Korean/English golden corpus smoke, and fixed CA/PIM rule priority."
+    }
+  ]
+}

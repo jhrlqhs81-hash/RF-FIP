@@ -1,0 +1,29 @@
+{
+  "project": "RF Failure Intelligence Platform UX",
+  "phase": "rf-fip-rag-contract-integration",
+  "goal": "Add provider-filtered RF Wiki RAG context for chat-reply and rca-summary while keeping internal Gauss Wiki blocked until its contract is supplied.",
+  "status": "completed",
+  "steps": [
+    {
+      "step": 1,
+      "name": "rag-contract-and-local-public-wiki",
+      "status": "completed",
+      "verdict": "PASS",
+      "summary": "Added RAG contract docs and public-safe local RF Wiki seed documents."
+    },
+    {
+      "step": 2,
+      "name": "server-rag-retriever-and-llm-integration",
+      "status": "completed",
+      "verdict": "PASS",
+      "summary": "Added server-owned RAG retrieval, provider/security filtering, Gauss internal wiki blocked stub, and LLM adapter context injection for chat-reply and rca-summary. RAG smoke and TypeScript verification passed."
+    },
+    {
+      "step": 3,
+      "name": "verification-and-record",
+      "status": "completed",
+      "verdict": "PASS_WITH_RISK",
+      "summary": "RAG smoke, LLM prompt smoke, TypeScript check, Vite build, server bundle, Harness policy, diff check, and HTTP check passed. Browser click-through remains connector-blocked."
+    }
+  ]
+}
