@@ -168,7 +168,7 @@ export function sampleMaterials(seed: string): ChatAttachment[] {
     {
       id: `${seed}-url`,
       type: "url",
-      name: "RF Desense Taxonomy 참고",
+      name: "분류 기준 문서 참조",
       url: "RF_DESENSE_TAXONOMY.md",
     },
   ];
