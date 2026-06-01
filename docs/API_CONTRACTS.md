@@ -34,6 +34,9 @@ All RF-FIP APIs are server-owned under `/api`.
 - Shape: `{ items: SignatureAliasEntry[] }`
 - Purpose: approved user/import alias overlay for the built-in Signature concept dictionary.
 - Rule: only approved aliases may affect automatic canonicalization.
+- Optional fields: `aliasType`, `relationType`, `sourceDocId`, `approvedBy`, `note`, `scope`.
+- Canonicalizing relation types: `synonym`, `alias`, `abbreviation`, `translation`, `spelling_variant`, `semantic_alias`.
+- Non-canonicalizing relation types: `related_to`, `parent_of`, `child_of`, `caused_by`, `measured_by`, `condition_of`, `reject`.
 
 ## Signature Weight Rules
 

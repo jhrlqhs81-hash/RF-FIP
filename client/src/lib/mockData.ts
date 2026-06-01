@@ -22,6 +22,20 @@ export interface PendingAliasCandidate {
   canonicalValue: string;
   score: number;
   matchedAlias: string;
+  suggestedRelation?:
+    | "synonym"
+    | "alias"
+    | "abbreviation"
+    | "translation"
+    | "spelling_variant"
+    | "semantic_alias"
+    | "related_to"
+    | "parent_of"
+    | "child_of"
+    | "caused_by"
+    | "measured_by"
+    | "condition_of"
+    | "reject";
 }
 
 export interface ChatAttachment {

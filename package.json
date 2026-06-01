@@ -32,6 +32,7 @@
     "smoke:product-slimming": "node scripts/rf-fip-product-slimming-smoke.mjs",
     "smoke:architecture-boundary": "node scripts/rf-fip-architecture-boundary-smoke.mjs",
     "smoke:rag-contract": "node scripts/rf-fip-rag-contract-smoke.mjs",
+    "smoke:rag-alias-expansion": "node scripts/rf-fip-rag-alias-expansion-smoke.mjs",
     "smoke:rag-maintenance": "node scripts/rf-fip-rag-maintenance-smoke.mjs",
     "smoke:knowledge-case-rag": "node scripts/rf-fip-knowledge-case-rag-smoke.mjs",
     "smoke:rag-ops-api": "node scripts/rf-fip-rag-ops-api-smoke.mjs",

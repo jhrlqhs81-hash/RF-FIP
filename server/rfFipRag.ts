@@ -38,6 +38,7 @@ export interface RetrievedKnowledgeContext {
   snippets: RagSnippet[];
   filteredCount: number;
   blockedReasons: string[];
+  expandedQueryTerms?: string[];
 }
 
 interface RagDocument {
@@ -82,6 +83,29 @@ interface KnowledgeCaseSnapshotItem {
   lessonsLearned?: string;
   decisionRationale?: string[];
   signatures?: Array<{ key: string; value: string }>;
+}
+
+type RagAliasRelationType =
+  | "synonym"
+  | "alias"
+  | "abbreviation"
+  | "translation"
+  | "spelling_variant"
+  | "semantic_alias"
+  | "related_to"
+  | "parent_of"
+  | "child_of"
+  | "caused_by"
+  | "measured_by"
+  | "condition_of"
+  | "reject";
+
+interface RagAliasEntry {
+  canonicalKey: string;
+  canonicalValue: string;
+  aliases?: string[];
+  status?: "approved" | "pending";
+  relationType?: RagAliasRelationType;
 }
 
 function normalize(value: string): string {
@@ -300,6 +324,39 @@ function queryTokens(input: RagQueryInput): string[] {
   return Array.from(new Set(tokens.flatMap(token => token.split(/[^A-Za-z0-9가-힣_.+-]+/)).map(normalize).filter(token => token.length >= 2)));
 }
 
+function aliasExpansionEntries(): RagAliasEntry[] {
+  const snapshot = getRfFipDbSnapshot() as { signatureAliasDictionary?: unknown };
+  if (!Array.isArray(snapshot.signatureAliasDictionary)) return [];
+  return snapshot.signatureAliasDictionary
+    .filter((item): item is RagAliasEntry => Boolean(item) && typeof item === "object")
+    .filter(item => (item.status ?? "approved") === "approved" && (item.relationType ?? "alias") !== "reject");
+}
+
+function aliasExpansionTerms(entry: RagAliasEntry): string[] {
+  return [
+    entry.canonicalKey,
+    entry.canonicalValue,
+    ...(Array.isArray(entry.aliases) ? entry.aliases : []),
+  ].flatMap(item => [item, ...normalizedParts(item)]).map(normalize).filter(item => item.length >= 2);
+}
+
+function expandQueryTokens(tokens: string[]): { tokens: string[]; expandedQueryTerms: string[] } {
+  const tokenSet = new Set(tokens);
+  const expanded = new Set<string>();
+  for (const entry of aliasExpansionEntries()) {
+    const terms = aliasExpansionTerms(entry);
+    if (!terms.some(term => tokenSet.has(term))) continue;
+    for (const term of terms) {
+      if (!tokenSet.has(term)) expanded.add(term);
+    }
+  }
+  const expandedTerms = Array.from(expanded);
+  return {
+    tokens: Array.from(new Set([...tokens, ...expandedTerms])),
+    expandedQueryTerms: expandedTerms.sort(),
+  };
+}
+
 function providerAllows(doc: RagDocument, provider: LlmProvider): boolean {
   if (!doc.allowedProviders.includes(provider)) return false;
   if (provider === "openai") return doc.securityClass === "public-safe";
@@ -337,9 +394,9 @@ export function retrieveKnowledgeContext(input: RagQueryInput): RetrievedKnowled
     };
   }
 
-  const tokens = queryTokens(input);
+  const expanded = expandQueryTokens(queryTokens(input));
   const scored = [...loadLocalPublicWikiDocuments(), ...loadKnowledgeCaseExcerptDocuments()]
-    .map(doc => ({ doc, ...documentScore(doc, tokens) }))
+    .map(doc => ({ doc, ...documentScore(doc, expanded.tokens) }))
     .filter(item => item.score > 0)
     .sort((a, b) => b.score - a.score);
   const allowed = scored.filter(item => providerAllows(item.doc, input.provider));
@@ -370,5 +427,6 @@ export function retrieveKnowledgeContext(input: RagQueryInput): RetrievedKnowled
     snippets,
     filteredCount: scored.length - snippets.length,
     blockedReasons,
+    expandedQueryTerms: expanded.expandedQueryTerms,
   };
 }

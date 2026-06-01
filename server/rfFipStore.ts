@@ -31,6 +31,12 @@ interface PersistedSignatureAliasEntry {
   source?: "builtin" | "user-approved" | "imported";
   conceptId?: string;
   valueId?: string;
+  aliasType?: "synonym" | "abbreviation" | "translation" | "spelling_variant" | "semantic_alias";
+  relationType?: "synonym" | "alias" | "abbreviation" | "translation" | "spelling_variant" | "semantic_alias" | "related_to" | "parent_of" | "child_of" | "caused_by" | "measured_by" | "condition_of" | "reject";
+  sourceDocId?: string;
+  approvedBy?: string;
+  note?: string;
+  scope?: string;
 }
 
 interface PersistedAttachment {

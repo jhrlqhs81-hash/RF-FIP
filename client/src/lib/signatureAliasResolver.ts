@@ -19,6 +19,12 @@ export interface SignatureAliasEntry {
   source?: "builtin" | "user-approved" | "imported";
   conceptId?: string;
   valueId?: string;
+  aliasType?: SignatureAliasType;
+  relationType?: SignatureAliasRelationType;
+  sourceDocId?: string;
+  approvedBy?: string;
+  note?: string;
+  scope?: string;
 }
 
 export interface SignatureAliasCandidate {
@@ -27,12 +33,60 @@ export interface SignatureAliasCandidate {
   canonicalValue: string;
   score: number;
   matchedAlias: string;
+  suggestedRelation?: SignatureAliasRelationType;
 }
+
+export type SignatureAliasType =
+  | "synonym"
+  | "abbreviation"
+  | "translation"
+  | "spelling_variant"
+  | "semantic_alias";
+
+export type SignatureAliasRelationType =
+  | "synonym"
+  | "alias"
+  | "abbreviation"
+  | "translation"
+  | "spelling_variant"
+  | "semantic_alias"
+  | "related_to"
+  | "parent_of"
+  | "child_of"
+  | "caused_by"
+  | "measured_by"
+  | "condition_of"
+  | "reject";
 
 export const SIGNATURE_ALIAS_DICTIONARY: SignatureAliasEntry[] = conceptAliasEntries();
 
 export function getApprovedAliasDictionary(entries: SignatureAliasEntry[] = SIGNATURE_ALIAS_DICTIONARY): SignatureAliasEntry[] {
   return entries.filter(entry => (entry.status ?? "approved") === "approved");
+}
+
+const CANONICALIZING_RELATIONS = new Set<SignatureAliasRelationType>([
+  "synonym",
+  "alias",
+  "abbreviation",
+  "translation",
+  "spelling_variant",
+  "semantic_alias",
+]);
+
+export function canAutoCanonicalizeAlias(entry: SignatureAliasEntry): boolean {
+  if ((entry.status ?? "approved") !== "approved") return false;
+  const relationType = entry.relationType ?? "alias";
+  if (!CANONICALIZING_RELATIONS.has(relationType)) return false;
+  if (relationType === "semantic_alias" && (entry.confidence ?? 1) < 0.75) return false;
+  return true;
+}
+
+export function getCanonicalizingAliasDictionary(entries: SignatureAliasEntry[] = SIGNATURE_ALIAS_DICTIONARY): SignatureAliasEntry[] {
+  return getApprovedAliasDictionary(entries).filter(canAutoCanonicalizeAlias);
+}
+
+export function getRelatedAliasDictionary(entries: SignatureAliasEntry[] = SIGNATURE_ALIAS_DICTIONARY): SignatureAliasEntry[] {
+  return entries.filter(entry => !canAutoCanonicalizeAlias(entry) && (entry.relationType ?? "alias") !== "reject");
 }
 
 export function mergeSignatureAliasDictionaries(
@@ -47,6 +101,7 @@ export function mergeSignatureAliasDictionaries(
       normalizeAliasToken(entry.canonicalValue),
       entry.status ?? "approved",
       entry.source ?? "builtin",
+      entry.relationType ?? "alias",
     ].join(":");
     const existing = byIdentity.get(key);
     byIdentity.set(key, existing ? { ...existing, aliases: Array.from(new Set([...existing.aliases, ...aliases])) } : { ...entry, aliases });
@@ -71,7 +126,7 @@ export function resolveAliasesInText(text: string, entries?: SignatureAliasEntry
   const normalizedText = normalizeAliasToken(text);
   const resolved: SignatureTag[] = [];
 
-  for (const entry of getApprovedAliasDictionary(entries ? mergeSignatureAliasDictionaries(entries) : SIGNATURE_ALIAS_DICTIONARY)) {
+  for (const entry of getCanonicalizingAliasDictionary(entries ? mergeSignatureAliasDictionaries(entries) : SIGNATURE_ALIAS_DICTIONARY)) {
     if (aliasTokens(entry).some(alias => alias.length >= 2 && normalizedText.includes(alias))) {
       resolved.push({ key: entry.canonicalKey, value: entry.canonicalValue, isNew: true });
     }
@@ -86,7 +141,7 @@ export function canonicalizeSignatureTag(tag: SignatureTag, entries?: SignatureA
 
   const normalizedKey = normalizeAliasToken(tag.key);
   const normalizedValue = normalizeAliasToken(tag.value);
-  const dictionary = getApprovedAliasDictionary(entries ? mergeSignatureAliasDictionaries(entries) : SIGNATURE_ALIAS_DICTIONARY);
+  const dictionary = getCanonicalizingAliasDictionary(entries ? mergeSignatureAliasDictionaries(entries) : SIGNATURE_ALIAS_DICTIONARY);
 
   for (const entry of dictionary) {
     const keyMatches =
@@ -123,7 +178,7 @@ export function canonicalizeSignatures(tags: SignatureTag[], entries?: Signature
 
 export function normalizeSignatureComparable(value: string, entries?: SignatureAliasEntry[]): string {
   const normalized = normalizeAliasToken(value);
-  for (const entry of getApprovedAliasDictionary(entries ? mergeSignatureAliasDictionaries(entries) : SIGNATURE_ALIAS_DICTIONARY)) {
+  for (const entry of getCanonicalizingAliasDictionary(entries ? mergeSignatureAliasDictionaries(entries) : SIGNATURE_ALIAS_DICTIONARY)) {
     if (aliasTokens(entry).includes(normalized)) return normalizeAliasToken(entry.canonicalValue);
   }
   return normalized;
@@ -171,7 +226,7 @@ function inputTerms(text: string): string[] {
 }
 
 export function findPendingAliasCandidates(text: string, threshold = 0.72, entries?: SignatureAliasEntry[]): SignatureAliasCandidate[] {
-  const dictionary = getApprovedAliasDictionary(entries ? mergeSignatureAliasDictionaries(entries) : SIGNATURE_ALIAS_DICTIONARY);
+  const dictionary = getCanonicalizingAliasDictionary(entries ? mergeSignatureAliasDictionaries(entries) : SIGNATURE_ALIAS_DICTIONARY);
   const exactValues = new Set(resolveAliasesInText(text, entries).map(tag => `${tag.key}:${tag.value}`));
   const candidates: SignatureAliasCandidate[] = [];
 
@@ -187,6 +242,7 @@ export function findPendingAliasCandidates(text: string, threshold = 0.72, entri
             canonicalValue: entry.canonicalValue,
             score: Number(score.toFixed(2)),
             matchedAlias: alias,
+            suggestedRelation: entry.relationType ?? "alias",
           });
         }
       }

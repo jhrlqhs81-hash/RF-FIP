@@ -65,6 +65,8 @@ export interface SignatureTermAliasEntry {
   status: "approved" | "pending";
   confidence: number;
   source: "builtin" | "user-approved" | "imported";
+  aliasType?: "synonym" | "abbreviation" | "translation" | "spelling_variant" | "semantic_alias";
+  relationType?: "synonym" | "alias" | "abbreviation" | "translation" | "spelling_variant" | "semantic_alias";
 }
 
 export function normalizeConceptToken(value: string): string {
@@ -370,6 +372,8 @@ export function conceptAliasEntries(): SignatureTermAliasEntry[] {
       status: "approved" as const,
       confidence: 1,
       source: "builtin" as const,
+      aliasType: "semantic_alias" as const,
+      relationType: "alias" as const,
     }))
   );
 }

@@ -55,6 +55,19 @@ const overlay = [
     confidence: 0.8,
     source: "imported",
   },
+  {
+    id: "related-pim-imd",
+    canonicalKey: "IM Product",
+    canonicalValue: "IM3 mentioned",
+    aliases: ["intermodlink"],
+    domain: "rf",
+    status: "approved",
+    confidence: 0.9,
+    source: "imported",
+    aliasType: "semantic_alias",
+    relationType: "related_to",
+    note: "PIM is related to IMD/IM products but must not auto-canonicalize as an IM3 signature.",
+  },
 ];
 
 const merged = alias.mergeSignatureAliasDictionaries(overlay);
@@ -66,6 +79,12 @@ assert(approved.some(tag => tag.key === "Desense Type" && tag.value === "Sensiti
 
 const pending = local.extractRfSignatures("B3 rear lid pressure issue", overlay);
 assert(!pending.some(tag => tag.key === "Contact Structure" && tag.value === "Back Glass"), "Pending alias must not auto-canonicalize.");
+
+const relatedOnly = alias.resolveAliasesInText("intermodlink needs review", overlay);
+assert(!relatedOnly.some(tag => tag.key === "IM Product" && tag.value === "IM3 mentioned"), "Related terms must not auto-canonicalize as synonyms.");
+const relatedValue = alias.canonicalizeSignatureTag({ key: "IM Product", value: "intermodlink" }, overlay);
+assert(relatedValue.value === "intermodlink", "Related terms must not canonicalize through key-scoped value matching.");
+assert(alias.getRelatedAliasDictionary(overlay).some(entry => entry.id === "related-pim-imd"), "Related alias entries should stay query/review metadata.");
 
 const builtin = local.extractRfSignatures("백글라스 conducted cable rx TIS fail chamber fail noise floor spur broadband noise channel-specific fail 2-tone PIM");
 assert(builtin.some(tag => tag.key === "Contact Structure" && tag.value === "Back Glass"), "Korean Back Glass alias should resolve.");

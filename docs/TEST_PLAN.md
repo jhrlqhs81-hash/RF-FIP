@@ -19,7 +19,7 @@
 - `/api/import-results` POST/GET
 - Signature concept ontology: approved aliases, relation-driven missing info, concept-aware similarity
 - Signature hierarchy: key aliases resolve to concept ids, values simplify to value ids, and weight/context/similarity use concept metadata
-- Signature alias dictionary: built-in aliases plus approved persisted overlay, with pending entries excluded from automatic canonicalization
+- Signature alias dictionary: built-in aliases plus approved persisted overlay, with pending entries and non-synonym relations excluded from automatic canonicalization
 - RF hardcode consolidation: shared intent, shared core extraction, client/server local fallback parity
 - Local Engine reply: chat reply output must stay aligned with the single generated evidence packet
 - Local Engine golden corpus: Korean/English/abbreviation RF inputs extract expected signatures and retain rule priority for BackGlass, conducted/OTA, internal noise, and CA/PIM cases
@@ -29,6 +29,7 @@
 - Product slimming: chat rendering has no mock-id demo table, Similar Case detail modal remains, and unreachable inline expanded detail is removed
 - Architecture boundary: Import candidate domain logic lives in `importCandidateAnalyzer.ts`, while `Home.tsx` only orchestrates Import file selection and state updates
 - RAG contract: local public wiki snippets are provider/security filtered, applied only to `chat-reply` and `rca-summary`, and Gauss internal wiki remains blocked without its contract
+- RAG alias expansion: persisted approved alias/relation entries may expand query terms for retrieval only; pending/reject entries do not expand, and OpenAI filtering remains public-safe
 - RAG maintenance: at least 20 public-safe RF Wiki documents exist, metadata is complete, review dates are fresh against the execution date, and golden queries retrieve expected public-safe snippets
 - Knowledge DB RAG: persisted `confirmed` cases generate internal-only excerpts for local/Gauss retrieval, `validated` cases are excluded, OpenAI receives only public-safe RF Wiki snippets, and local LLM output reports `usedKnowledgeCaseSourceIds`
 - RAG ops report: source counts, review due status, Knowledge case excerpt policy, and OpenAI non-public leak checks produce PASS/WARN/FAIL for CI or scheduled execution

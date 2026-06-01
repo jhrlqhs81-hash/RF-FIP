@@ -71,6 +71,13 @@ workflow -> diagnostic_gate -> pressure_ab
 
 ## Synonym Dictionary Rule
 
+Current implementation rule:
+
+- Alias entries may include `aliasType`, `relationType`, `sourceDocId`, `approvedBy`, `note`, and `scope`.
+- Only approved synonym-like relations (`synonym`, `alias`, `abbreviation`, `translation`, `spelling_variant`, `semantic_alias`) may auto-canonicalize.
+- Related relations (`related_to`, `caused_by`, `measured_by`, `parent_of`, `condition_of`) must not auto-canonicalize. They are query/review metadata only.
+- RF near terms such as `PIM` and `IMD`, `Conducted` and `OTA`, or `TRP` and `TIS` must be modelled as relations unless a domain owner explicitly approves a synonym relation.
+
 - approved alias만 자동 canonicalize합니다.
 - pending 후보는 `pendingAliasCandidates`로 보존하되 자동 매핑하지 않습니다.
 - 한 term이 여러 concept에 매칭될 수 있으면 자동 승인하지 않습니다.

@@ -51,7 +51,11 @@
 - `source`: `builtin | user-approved | imported`
 - `confidence`
 - `conceptId?`, `valueId?`
+- `aliasType?`: `synonym | abbreviation | translation | spelling_variant | semantic_alias`
+- `relationType?`: `synonym | alias | abbreviation | translation | spelling_variant | semantic_alias | related_to | parent_of | child_of | caused_by | measured_by | condition_of | reject`
+- `sourceDocId?`, `approvedBy?`, `note?`, `scope?`
 - Only `approved` entries are allowed to canonicalize input automatically.
+- `related_to`, `caused_by`, `measured_by`, `parent_of`, `condition_of`, and `reject` entries never auto-canonicalize; they are retained as review/query-expansion metadata only.
 
 ## SignatureWeightRule
 

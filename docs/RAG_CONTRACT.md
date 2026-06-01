@@ -106,6 +106,16 @@ Knowledge case excerpts default to `securityClass: "internal-only"` and `allowed
 - Filtered snippets are not sent to the provider.
 - Blocked internal wiki connectors must report missing contract items without exposing secret values.
 
+## Alias Relation Query Expansion
+
+RAG may use persisted approved `signatureAliasDictionary` entries for deterministic query expansion before scoring documents. This expansion is retrieval-only and does not canonicalize Chat, Import, Knowledge DB, or Similarity signatures.
+
+- `synonym`, `alias`, `abbreviation`, `translation`, `spelling_variant`, and `semantic_alias` may expand query terms.
+- `related_to`, `caused_by`, `measured_by`, `parent_of`, and `condition_of` may also expand query terms, but remain non-canonicalizing relation metadata.
+- `reject` and `pending` entries must not expand query terms.
+- Provider/security filtering still applies after expansion; OpenAI must still receive only `public-safe` snippets.
+- `retrievedKnowledgeContext.expandedQueryTerms` records added normalized query terms for audit/debug.
+
 ## LLM Input Contract
 
 ```ts
