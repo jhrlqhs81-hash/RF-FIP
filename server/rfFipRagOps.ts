@@ -3,6 +3,7 @@ import {
   loadLocalPublicWikiDocuments,
   retrieveKnowledgeContext,
 } from "./rfFipRag";
+import { getRfFipDbSnapshot } from "./rfFipStore";
 
 export type RagOpsVerdict = "PASS" | "WARN" | "FAIL";
 
@@ -12,7 +13,9 @@ export interface RagOpsReport {
   today: string;
   counts: {
     publicWikiDocuments: number;
+    confirmedKnowledgeCases: number;
     knowledgeCaseExcerpts: number;
+    nonConfirmedKnowledgeCases: number;
     openAiProbeSnippets: number;
   };
   warnings: string[];
@@ -50,6 +53,9 @@ export function buildRagOpsReport(options: RagOpsReportOptions = {}): RagOpsRepo
   const today = localIsoDate(now);
   const publicDocs = loadLocalPublicWikiDocuments();
   const knowledgeDocs = loadKnowledgeCaseExcerptDocuments();
+  const knowledgeCases = getRfFipDbSnapshot().knowledgeCases ?? [];
+  const confirmedKnowledgeCases = knowledgeCases.filter(item => item.status === "confirmed").length;
+  const nonConfirmedKnowledgeCases = knowledgeCases.filter(item => item.status !== "confirmed").length;
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -67,6 +73,9 @@ export function buildRagOpsReport(options: RagOpsReportOptions = {}): RagOpsRepo
   }
 
   if (publicDocs.length < 20) errors.push(`public RF Wiki document count below 20: ${publicDocs.length}`);
+  if (knowledgeDocs.length !== confirmedKnowledgeCases) {
+    errors.push(`Knowledge case excerpt count mismatch: confirmed=${confirmedKnowledgeCases}, excerpts=${knowledgeDocs.length}`);
+  }
 
   const knowledgeIds = new Set<string>();
   for (const doc of knowledgeDocs) {
@@ -104,7 +113,9 @@ export function buildRagOpsReport(options: RagOpsReportOptions = {}): RagOpsRepo
     today,
     counts: {
       publicWikiDocuments: publicDocs.length,
+      confirmedKnowledgeCases,
       knowledgeCaseExcerpts: knowledgeDocs.length,
+      nonConfirmedKnowledgeCases,
       openAiProbeSnippets: openAiProbe.snippets.length,
     },
     warnings,

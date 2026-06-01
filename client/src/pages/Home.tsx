@@ -1646,14 +1646,22 @@ function RagOpsPanel() {
 
       {report ? (
         <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">
             <div className="rounded-lg border border-border/60 p-2" style={{ background: 'var(--panel-surface)' }}>
               <p className="text-[10px] text-muted-foreground">Public Wiki</p>
               <p className="mt-1 font-mono text-lg font-semibold text-foreground">{report.counts.publicWikiDocuments}</p>
             </div>
             <div className="rounded-lg border border-border/60 p-2" style={{ background: 'var(--panel-surface)' }}>
+              <p className="text-[10px] text-muted-foreground">Confirmed DB</p>
+              <p className="mt-1 font-mono text-lg font-semibold text-foreground">{report.counts.confirmedKnowledgeCases ?? report.counts.knowledgeCaseExcerpts}</p>
+            </div>
+            <div className="rounded-lg border border-border/60 p-2" style={{ background: 'var(--panel-surface)' }}>
               <p className="text-[10px] text-muted-foreground">Case Excerpt</p>
               <p className="mt-1 font-mono text-lg font-semibold text-foreground">{report.counts.knowledgeCaseExcerpts}</p>
+            </div>
+            <div className="rounded-lg border border-border/60 p-2" style={{ background: 'var(--panel-surface)' }}>
+              <p className="text-[10px] text-muted-foreground">RAG 제외</p>
+              <p className="mt-1 font-mono text-lg font-semibold text-foreground">{report.counts.nonConfirmedKnowledgeCases ?? 0}</p>
             </div>
             <div className="rounded-lg border border-border/60 p-2" style={{ background: 'var(--panel-surface)' }}>
               <p className="text-[10px] text-muted-foreground">OpenAI Probe</p>

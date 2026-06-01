@@ -32,7 +32,7 @@
 - RAG alias expansion: persisted approved alias/relation entries may expand query terms for retrieval only; pending/reject entries do not expand, and OpenAI filtering remains public-safe
 - RAG maintenance: at least 20 public-safe RF Wiki documents exist, metadata is complete, review dates are fresh against the execution date, and golden queries retrieve expected public-safe snippets
 - Knowledge DB RAG: persisted `confirmed` cases generate internal-only excerpts for local/Gauss retrieval, `validated` cases are excluded, OpenAI receives only public-safe RF Wiki snippets, and local LLM output reports `usedKnowledgeCaseSourceIds`
-- RAG ops report: source counts, review due status, Knowledge case excerpt policy, and OpenAI non-public leak checks produce PASS/WARN/FAIL for CI or scheduled execution
+- RAG ops report: source counts, confirmed-case to excerpt parity, review due status, Knowledge case excerpt policy, and OpenAI non-public leak checks produce PASS/WARN/FAIL for CI or scheduled execution
 - RAG ops UI/API: `/api/rag/ops-report` is read-only, returns the same report contract as the CLI, and the Signature Dictionary workspace can run it on user click
 
 Smoke checks must use `RF_FIP_DB_DIR=.rf-fip-db/smoke-*`.

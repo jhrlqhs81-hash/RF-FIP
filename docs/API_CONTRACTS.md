@@ -73,6 +73,7 @@ All RF-FIP APIs are server-owned under `/api`.
 - `GET /api/rag/ops-report`
 - Shape: `{ report: RagOpsReport }`
 - Purpose: user-triggered operational health check for RAG sources and provider filtering.
+- Counts include public RF Wiki documents, persisted `confirmed` Knowledge DB cases, generated Knowledge case excerpts, non-confirmed Knowledge cases excluded from RAG, and OpenAI probe snippets.
 - Rule: this endpoint is read-only and must not mutate Knowledge DB, RF Wiki, Signature Dictionary, or Issues.
 - Rule: response must not expose API keys, raw attachment URLs, internal user metadata, or secret values.
 

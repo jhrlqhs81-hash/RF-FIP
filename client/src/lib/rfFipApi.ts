@@ -43,7 +43,9 @@ export interface RagOpsReport {
   today: string;
   counts: {
     publicWikiDocuments: number;
+    confirmedKnowledgeCases?: number;
     knowledgeCaseExcerpts: number;
+    nonConfirmedKnowledgeCases?: number;
     openAiProbeSnippets: number;
   };
   warnings: string[];
