@@ -25,6 +25,7 @@
 - Local Engine golden corpus: Korean/English/abbreviation RF inputs extract expected signatures and retain rule priority for BackGlass, conducted/OTA, internal noise, and CA/PIM cases
 - Classification/similarity cleanup: taxonomy uses shared triage baseline, Knowledge DB similarity uses analysis signatures plus Signature weight rules, and Band mismatch remains visible with a penalty/badge instead of hard exclusion
 - Signature mapping audit: RAT/Band/Degradation/Unit Scope/Tx Threshold classify as metadata, Mechanism/Desense Category/PIM Risk classify as RCA attributes, and only analysis-signature mapping gaps require review
+- Signature alias candidate actions: `정규화` persists an auto-canonicalizing alias, `관련어` persists relation/RAG metadata only, and `거부` suppresses repeat pending proposals without canonicalizing.
 - Data/parser ownership cleanup: similarity requires caller-supplied Knowledge cases, seed data lives in `knowledgeSeedCases.ts`, and Import parser profile owns field/header heuristics
 - Product slimming: chat rendering has no mock-id demo table, Similar Case detail modal remains, and unreachable inline expanded detail is removed
 - Architecture boundary: Import candidate domain logic lives in `importCandidateAnalyzer.ts`, while `Home.tsx` only orchestrates Import file selection and state updates

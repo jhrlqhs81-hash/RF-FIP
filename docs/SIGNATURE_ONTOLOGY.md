@@ -77,6 +77,8 @@ Current implementation rule:
 - Only approved synonym-like relations (`synonym`, `alias`, `abbreviation`, `translation`, `spelling_variant`, `semantic_alias`) may auto-canonicalize.
 - Related relations (`related_to`, `caused_by`, `measured_by`, `parent_of`, `condition_of`) must not auto-canonicalize. They are query/review metadata only.
 - RF near terms such as `PIM` and `IMD`, `Conducted` and `OTA`, or `TRP` and `TIS` must be modelled as relations unless a domain owner explicitly approves a synonym relation.
+- Pending alias candidates expose three operator actions: `정규화` saves an auto-canonicalizing alias, `관련어` saves a retrieval/RAG relation only, and `거부` suppresses repeat proposals without changing signatures.
+- Saved `related_to` and `reject` entries must not affect Chat/Import/Knowledge DB signature canonicalization. They only influence review state or RAG query expansion where allowed.
 
 - approved alias만 자동 canonicalize합니다.
 - pending 후보는 `pendingAliasCandidates`로 보존하되 자동 매핑하지 않습니다.
