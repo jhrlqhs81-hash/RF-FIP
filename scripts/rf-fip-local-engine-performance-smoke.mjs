@@ -8,6 +8,7 @@ const projectRoot = path.resolve(scriptDir, "..");
 const scratchDir = path.join(projectRoot, ".rf-fip-db", "smoke-local-engine-performance");
 const aliasBundlePath = path.join(scratchDir, "signature-alias-resolver.mjs");
 const similarBundlePath = path.join(scratchDir, "similar-cases-db.mjs");
+const localAnalyzerBundlePath = path.join(scratchDir, "local-rf-analyzer.mjs");
 const homePath = path.join(projectRoot, "client", "src", "pages", "Home.tsx");
 
 function assert(condition, message) {
@@ -31,9 +32,18 @@ await build({
   format: "esm",
   logLevel: "silent",
 });
+await build({
+  entryPoints: [path.join(projectRoot, "client", "src", "lib", "localRfAnalyzer.ts")],
+  outfile: localAnalyzerBundlePath,
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  logLevel: "silent",
+});
 
 const alias = await import(`${pathToFileURL(aliasBundlePath).href}?t=${Date.now()}`);
 const similar = await import(`${pathToFileURL(similarBundlePath).href}?t=${Date.now()}`);
+const localAnalyzer = await import(`${pathToFileURL(localAnalyzerBundlePath).href}?t=${Date.now()}`);
 const homeSource = await fs.readFile(homePath, "utf8");
 
 const approved = alias.getApprovedAliasDictionary();
@@ -67,6 +77,35 @@ const score = similar.calcSimilarity(
   },
 );
 assert(score >= 40, `Alias-aware similarity should score strongly; got ${score}.`);
+
+const customAliasDictionary = [{
+  id: "local-engine-custom-alias",
+  canonicalKey: "Contact Structure",
+  canonicalValue: "Back Glass",
+  aliases: ["bgcoverx"],
+  domain: "rf",
+  status: "approved",
+  confidence: 0.96,
+  source: "user-approved",
+  aliasType: "semantic_alias",
+  relationType: "alias",
+}];
+const packet = localAnalyzer.buildLocalEvidencePacket({
+  text: "back glass pressure desense",
+  existingSignatures: [],
+  signatureAliasDictionary: customAliasDictionary,
+  knowledgeCases: [{
+    id: "KB-CUSTOM-ALIAS",
+    title: "Custom alias back glass case",
+    model: "TEST",
+    band: "LTE B3",
+    status: "confirmed",
+    confirmedRootCause: "Back glass contact",
+    mitigation: "Adjust assembly force",
+    signatures: [{ key: "Structure", value: "bgcoverx" }],
+  }],
+});
+assert(packet.similarCases.some(item => item.id === "KB-CUSTOM-ALIAS"), "Local evidence packet should pass user-approved aliases into similar case retrieval.");
 assert(homeSource.includes("pendingAliasCandidates: analysis.evidencePacket?.pendingAliasCandidates"), "Chat messages should preserve pending alias candidates.");
 assert(homeSource.includes("pendingAliasCandidates: message.pendingAliasCandidates"), "Shared analysis context should include pending alias candidates.");
 

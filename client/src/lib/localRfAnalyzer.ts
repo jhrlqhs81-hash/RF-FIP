@@ -146,7 +146,14 @@ export function buildLocalEvidencePacket(input: {
   const missing = buildWeightedMissingInfo(signatureGroups.analysisSignatures, input.text, input.signatureWeightRules);
   const pendingAliasCandidates = findPendingAliasCandidates(input.text, 0.72, input.signatureAliasDictionary);
   const conceptRelationHints = buildSignatureRelationHints(signatureGroups.analysisSignatures);
-  const similarCases = findSimilarCases(merged, 20, 3, input.signatureWeightRules, input.knowledgeCases).map(item => ({
+  const similarCases = findSimilarCases(
+    merged,
+    20,
+    3,
+    input.signatureWeightRules,
+    input.knowledgeCases,
+    input.signatureAliasDictionary,
+  ).map(item => ({
     id: item.id,
     title: item.title,
     similarity: item.similarity ?? 0,
