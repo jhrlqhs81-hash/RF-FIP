@@ -23,6 +23,7 @@ import {
   normalizeAliasToken,
   type SignatureAliasEntry,
   type SignatureAliasCandidate,
+  type SignatureAliasRelationType,
 } from "@/lib/signatureAliasResolver";
 import {
   mergeSignatureWeightRules,
@@ -200,6 +201,8 @@ function aliasUsageClass(entry: SignatureAliasEntry) {
   if (canAutoCanonicalizeAlias(entry)) return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
   return "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300";
 }
+
+type AliasCandidateAction = "canonicalize" | "related" | "reject";
 
 function buildLlmChatAnalysis(result: Record<string, unknown>, fallback: { content: string; extractedTags: SignatureTag[] }) {
   return {
@@ -552,7 +555,7 @@ function ChatMessage({ msg, users, onReply, onApproveAlias }: {
   msg: Message;
   users: Record<string, User>;
   onReply?: (msg: Message) => void;
-  onApproveAlias?: (candidate: SignatureAliasCandidate) => void;
+  onApproveAlias?: (candidate: SignatureAliasCandidate, action?: AliasCandidateAction) => void;
 }) {
   const user = msg.userId ? users[msg.userId] : null;
 
@@ -654,13 +657,29 @@ function ChatMessage({ msg, users, onReply, onApproveAlias }: {
                     <span className="font-mono">{candidate.canonicalKey}:{candidate.canonicalValue}</span>
                   </span>
                   {onApproveAlias && (
-                    <button
-                      type="button"
-                      onClick={() => onApproveAlias(candidate)}
-                      className="shrink-0 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
-                    >
-                      승인
-                    </button>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => onApproveAlias(candidate, "canonicalize")}
+                        className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300"
+                      >
+                        정규화
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onApproveAlias(candidate, "related")}
+                        className="rounded border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[10px] text-sky-700 hover:bg-sky-500/15 dark:text-sky-300"
+                      >
+                        관련어
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onApproveAlias(candidate, "reject")}
+                        className="rounded border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-[10px] text-red-700 hover:bg-red-500/15 dark:text-red-300"
+                      >
+                        거부
+                      </button>
+                    </div>
                   )}
                 </div>
               ))}
@@ -2092,37 +2111,64 @@ export default function Home() {
     });
   };
 
-  const approveAliasCandidate = (candidate: SignatureAliasCandidate) => {
+  const approveAliasCandidate = (candidate: SignatureAliasCandidate, action: AliasCandidateAction = "canonicalize") => {
     const rawAlias = candidate.raw.trim();
     if (!rawAlias) return;
     const builtin = SIGNATURE_ALIAS_DICTIONARY.find(entry =>
       normalizeAliasToken(entry.canonicalKey) === normalizeAliasToken(candidate.canonicalKey) &&
       normalizeAliasToken(entry.canonicalValue) === normalizeAliasToken(candidate.canonicalValue)
     );
+    const relationType: SignatureAliasRelationType = action === "related"
+      ? "related_to"
+      : action === "reject"
+      ? "reject"
+      : "alias";
+    const usageText = action === "related"
+      ? "RAG 검색 확장 관련어"
+      : action === "reject"
+      ? "거부 alias"
+      : "자동 정규화 alias";
     const approvedDictionary = mergeSignatureAliasDictionaries(signatureAliasDictionary);
     const alreadyApproved = approvedDictionary.some(entry =>
       normalizeAliasToken(entry.canonicalKey) === normalizeAliasToken(candidate.canonicalKey) &&
       normalizeAliasToken(entry.canonicalValue) === normalizeAliasToken(candidate.canonicalValue) &&
+      (entry.relationType ?? 'alias') === relationType &&
       [entry.canonicalValue, ...entry.aliases].some(alias => normalizeAliasToken(alias) === normalizeAliasToken(rawAlias))
     );
     if (alreadyApproved) {
-      toast.info('이미 승인된 동의어입니다.');
+      toast.info('이미 저장된 alias입니다.', { description: `${rawAlias} · ${usageText}` });
       return;
     }
 
-    const existingIndex = signatureAliasDictionary.findIndex(entry =>
+    const cleaned = signatureAliasDictionary
+      .map(entry => {
+        if (
+          normalizeAliasToken(entry.canonicalKey) !== normalizeAliasToken(candidate.canonicalKey) ||
+          normalizeAliasToken(entry.canonicalValue) !== normalizeAliasToken(candidate.canonicalValue)
+        ) {
+          return entry;
+        }
+        return {
+          ...entry,
+          aliases: entry.aliases.filter(alias => normalizeAliasToken(alias) !== normalizeAliasToken(rawAlias)),
+        };
+      })
+      .filter(entry => entry.source === 'builtin' || entry.aliases.length > 0);
+
+    const existingIndex = cleaned.findIndex(entry =>
       normalizeAliasToken(entry.canonicalKey) === normalizeAliasToken(candidate.canonicalKey) &&
       normalizeAliasToken(entry.canonicalValue) === normalizeAliasToken(candidate.canonicalValue) &&
+      (entry.relationType ?? 'alias') === relationType &&
       (entry.status ?? 'approved') === 'approved'
     );
-    const next = [...signatureAliasDictionary];
+    const next = [...cleaned];
     if (existingIndex >= 0) {
       const existing = next[existingIndex];
       next[existingIndex] = {
         ...existing,
         aliases: Array.from(new Set([...existing.aliases, rawAlias])),
         aliasType: existing.aliasType ?? 'semantic_alias',
-        relationType: existing.relationType ?? candidate.suggestedRelation ?? 'alias',
+        relationType,
         source: existing.source ?? 'user-approved',
         status: 'approved',
       };
@@ -2137,13 +2183,13 @@ export default function Home() {
         confidence: candidate.score,
         source: 'user-approved',
         aliasType: 'semantic_alias',
-        relationType: candidate.suggestedRelation ?? 'alias',
+        relationType,
         conceptId: builtin?.conceptId,
         valueId: builtin?.valueId,
       });
     }
     updateSignatureAliasDictionary(next);
-    toast.success('동의어가 승인되었습니다.', { description: `${rawAlias} → ${candidate.canonicalKey}:${candidate.canonicalValue}` });
+    toast.success('Alias 후보를 저장했습니다.', { description: `${rawAlias} → ${candidate.canonicalKey}:${candidate.canonicalValue} · ${usageText}` });
   };
 
   const updateSignatureWeightRules = (items: SignatureWeightRule[]) => {

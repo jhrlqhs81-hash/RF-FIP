@@ -226,11 +226,19 @@ function inputTerms(text: string): string[] {
 }
 
 export function findPendingAliasCandidates(text: string, threshold = 0.72, entries?: SignatureAliasEntry[]): SignatureAliasCandidate[] {
-  const dictionary = getCanonicalizingAliasDictionary(entries ? mergeSignatureAliasDictionaries(entries) : SIGNATURE_ALIAS_DICTIONARY);
+  const mergedDictionary = entries ? mergeSignatureAliasDictionaries(entries) : SIGNATURE_ALIAS_DICTIONARY;
+  const dictionary = getCanonicalizingAliasDictionary(mergedDictionary);
+  const suppressedCandidateTokens = new Set(
+    getApprovedAliasDictionary(mergedDictionary)
+      .filter(entry => !canAutoCanonicalizeAlias(entry))
+      .flatMap(entry => entry.aliases.map(normalizeAliasToken))
+      .filter(Boolean)
+  );
   const exactValues = new Set(resolveAliasesInText(text, entries).map(tag => `${tag.key}:${tag.value}`));
   const candidates: SignatureAliasCandidate[] = [];
 
   for (const raw of inputTerms(text)) {
+    if (suppressedCandidateTokens.has(raw)) continue;
     for (const entry of dictionary) {
       if (exactValues.has(`${entry.canonicalKey}:${entry.canonicalValue}`)) continue;
       for (const alias of aliasTokens(entry)) {

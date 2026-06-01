@@ -68,6 +68,19 @@ const overlay = [
     relationType: "related_to",
     note: "PIM is related to IMD/IM products but must not auto-canonicalize as an IM3 signature.",
   },
+  {
+    id: "rejected-backglas",
+    canonicalKey: "Contact Structure",
+    canonicalValue: "Back Glass",
+    aliases: ["backglas"],
+    domain: "mechanical",
+    status: "approved",
+    confidence: 0.93,
+    source: "user-approved",
+    aliasType: "semantic_alias",
+    relationType: "reject",
+    note: "User rejected this spelling as an alias candidate in the current operating context.",
+  },
 ];
 
 const merged = alias.mergeSignatureAliasDictionaries(overlay);
@@ -85,6 +98,8 @@ assert(!relatedOnly.some(tag => tag.key === "IM Product" && tag.value === "IM3 m
 const relatedValue = alias.canonicalizeSignatureTag({ key: "IM Product", value: "intermodlink" }, overlay);
 assert(relatedValue.value === "intermodlink", "Related terms must not canonicalize through key-scoped value matching.");
 assert(alias.getRelatedAliasDictionary(overlay).some(entry => entry.id === "related-pim-imd"), "Related alias entries should stay query/review metadata.");
+const rejectedCandidates = alias.findPendingAliasCandidates("backglas contact issue", 0.72, overlay);
+assert(!rejectedCandidates.some(candidate => candidate.raw === "backglas"), "Rejected alias candidates should not be proposed repeatedly.");
 
 const builtin = local.extractRfSignatures("백글라스 conducted cable rx TIS fail chamber fail noise floor spur broadband noise channel-specific fail 2-tone PIM");
 assert(builtin.some(tag => tag.key === "Contact Structure" && tag.value === "Back Glass"), "Korean Back Glass alias should resolve.");
