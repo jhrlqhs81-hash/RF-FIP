@@ -14,7 +14,16 @@ import { classifyDesenseCase } from "@/lib/rfDesenseTaxonomy";
 import { extractRfSignatures, generateLocalRfReply, mergeSignatures } from "@/lib/localRfAnalyzer";
 import { buildLocalHybridHypotheses } from "@/lib/hybridHypothesis";
 import { buildLocalHybridSummary } from "@/lib/hybridSummary";
-import { SIGNATURE_ALIAS_DICTIONARY, canonicalizeSignatures, mergeSignatureAliasDictionaries, normalizeAliasToken, type SignatureAliasEntry, type SignatureAliasCandidate } from "@/lib/signatureAliasResolver";
+import {
+  SIGNATURE_ALIAS_DICTIONARY,
+  canAutoCanonicalizeAlias,
+  canonicalizeSignatures,
+  getRelatedAliasDictionary,
+  mergeSignatureAliasDictionaries,
+  normalizeAliasToken,
+  type SignatureAliasEntry,
+  type SignatureAliasCandidate,
+} from "@/lib/signatureAliasResolver";
 import {
   mergeSignatureWeightRules,
   weightedSignatureContext,
@@ -157,6 +166,39 @@ function sourceLabel(source?: AnalysisSource): string {
   if (source === 'fallback') return 'Fallback';
   if (source === 'user-approved') return 'User approved';
   return 'Mock/state';
+}
+
+function aliasRelationLabel(entry: SignatureAliasEntry) {
+  const relation = entry.relationType ?? "alias";
+  const labels: Record<string, string> = {
+    synonym: "동의어",
+    alias: "별칭",
+    abbreviation: "약어",
+    translation: "번역어",
+    spelling_variant: "표기 변형",
+    semantic_alias: "의미 동의어",
+    related_to: "관련어",
+    caused_by: "원인 관계",
+    measured_by: "측정 관계",
+    parent_of: "상위 관계",
+    condition_of: "조건 관계",
+    reject: "거부",
+  };
+  return labels[relation] ?? relation;
+}
+
+function aliasUsageLabel(entry: SignatureAliasEntry) {
+  if ((entry.status ?? "approved") !== "approved") return "승인 대기";
+  if ((entry.relationType ?? "alias") === "reject") return "거부됨";
+  if (canAutoCanonicalizeAlias(entry)) return "자동 정규화";
+  return "RAG 검색 확장";
+}
+
+function aliasUsageClass(entry: SignatureAliasEntry) {
+  if ((entry.status ?? "approved") !== "approved") return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  if ((entry.relationType ?? "alias") === "reject") return "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300";
+  if (canAutoCanonicalizeAlias(entry)) return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  return "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300";
 }
 
 function buildLlmChatAnalysis(result: Record<string, unknown>, fallback: { content: string; extractedTags: SignatureTag[] }) {
@@ -1356,6 +1398,7 @@ function KnowledgeDbWorkspace({
       <SignatureDictionaryWorkspace
         knowledgeCases={knowledgeCases}
         customSignatures={customSignatures}
+        signatureAliasDictionary={signatureAliasDictionary}
         signatureWeightRules={signatureWeightRules}
         onChangeSignatureWeightRules={onChangeSignatureWeightRules}
         onChangeCustomSignatures={onChangeCustomSignatures}
@@ -1657,6 +1700,7 @@ function RagOpsPanel() {
 function SignatureDictionaryWorkspace({
   knowledgeCases,
   customSignatures,
+  signatureAliasDictionary,
   signatureWeightRules,
   onChangeSignatureWeightRules,
   onChangeCustomSignatures,
@@ -1665,6 +1709,7 @@ function SignatureDictionaryWorkspace({
 }: {
   knowledgeCases: KnowledgeCase[];
   customSignatures: SignatureTag[];
+  signatureAliasDictionary: SignatureAliasEntry[];
   signatureWeightRules: SignatureWeightRule[];
   onChangeSignatureWeightRules: (items: SignatureWeightRule[]) => void;
   onChangeCustomSignatures: (items: SignatureTag[]) => void;
@@ -1700,6 +1745,37 @@ function SignatureDictionaryWorkspace({
     }
     return Array.from(map.values()).sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
   }, [customSignatures, knowledgeCases]);
+
+  const mergedAliasDictionary = useMemo(
+    () => mergeSignatureAliasDictionaries(signatureAliasDictionary),
+    [signatureAliasDictionary]
+  );
+  const approvedAliasDictionary = useMemo(
+    () => mergedAliasDictionary.filter(item => (item.status ?? "approved") === "approved"),
+    [mergedAliasDictionary]
+  );
+  const autoCanonicalAliasCount = useMemo(
+    () => approvedAliasDictionary.filter(canAutoCanonicalizeAlias).length,
+    [approvedAliasDictionary]
+  );
+  const relatedAliasCount = useMemo(
+    () => getRelatedAliasDictionary(approvedAliasDictionary).length,
+    [approvedAliasDictionary]
+  );
+  const userAliasEntries = useMemo(
+    () => signatureAliasDictionary.filter(item => (item.status ?? "approved") === "approved"),
+    [signatureAliasDictionary]
+  );
+  const aliasesBySignature = useMemo(() => {
+    const map = new Map<string, SignatureAliasEntry[]>();
+    for (const entry of mergedAliasDictionary) {
+      const key = `${normalizeAliasToken(entry.canonicalKey)}|||${normalizeAliasToken(entry.canonicalValue)}`;
+      const current = map.get(key) ?? [];
+      current.push(entry);
+      map.set(key, current);
+    }
+    return map;
+  }, [mergedAliasDictionary]);
 
   const filtered = entries.filter(item => {
     const needle = query.trim().toLowerCase();
@@ -1785,6 +1861,25 @@ function SignatureDictionaryWorkspace({
               </button>
             </div>
           </div>
+          <div className="rounded-lg border border-border/60 p-3" style={{ background: 'var(--panel-surface)' }}>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10px] font-semibold text-muted-foreground">Alias 운영 상태</p>
+              <span className="font-mono text-[10px] text-muted-foreground/70">{userAliasEntries.length} user</span>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-[10px]">
+              <div className="rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 py-1.5 text-emerald-700 dark:text-emerald-300">
+                <p className="font-semibold">자동 정규화</p>
+                <p className="font-mono">{autoCanonicalAliasCount}</p>
+              </div>
+              <div className="rounded-md border border-sky-500/25 bg-sky-500/10 px-2 py-1.5 text-sky-700 dark:text-sky-300">
+                <p className="font-semibold">RAG 확장</p>
+                <p className="font-mono">{relatedAliasCount}</p>
+              </div>
+            </div>
+            <p className="mt-2 text-[10px] leading-snug text-muted-foreground">
+              synonym/alias/약어/번역어는 자동 정규화에 쓰고, related/원인/측정 관계는 signature를 바꾸지 않고 RAG 검색 확장에만 씁니다.
+            </p>
+          </div>
           <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-border/60 p-3" style={{ background: 'var(--panel-surface)' }}>
             <p className="mb-2 text-[10px] font-semibold text-muted-foreground">Key별 빈도</p>
             <div className="flex min-h-0 flex-1 content-start flex-wrap gap-1 overflow-y-auto pr-1">
@@ -1836,6 +1931,7 @@ function SignatureDictionaryWorkspace({
               <div className="grid gap-2">
           {group.items.map(item => {
             const customIndex = customSignatures.findIndex(sig => sig.key === item.key && sig.value === item.value);
+            const itemAliases = aliasesBySignature.get(`${normalizeAliasToken(item.key)}|||${normalizeAliasToken(item.value)}`) ?? [];
             return (
               <div key={`${item.key}-${item.value}`} className="rounded-xl border border-border/70 p-3" style={{ background: 'var(--card)' }}>
                 <div className="flex items-start justify-between gap-3">
@@ -1852,6 +1948,24 @@ function SignatureDictionaryWorkspace({
                     <p className="mt-1 text-[10px] text-muted-foreground">
                       {item.mapping.detail ? `${item.mapping.detail} · ` : ''}{item.mapping.description}
                     </p>
+                    {itemAliases.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {itemAliases.slice(0, 3).map(alias => (
+                          <span
+                            key={`${alias.id}-${alias.relationType ?? 'alias'}`}
+                            className={cn("rounded-full border px-2 py-0.5 text-[10px] font-medium", aliasUsageClass(alias))}
+                            title={`${aliasRelationLabel(alias)}: ${alias.aliases.join(', ')}`}
+                          >
+                            {aliasUsageLabel(alias)} · {aliasRelationLabel(alias)}
+                          </span>
+                        ))}
+                        {itemAliases.length > 3 && (
+                          <span className="rounded-full border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground">
+                            +{itemAliases.length - 3}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {item.mapping.tone !== "mapped" && <SignatureMappingDetail tag={item} className="mt-2" />}
                   </button>
                   <div className="flex items-center gap-2">
@@ -1999,6 +2113,8 @@ export default function Home() {
       next[existingIndex] = {
         ...existing,
         aliases: Array.from(new Set([...existing.aliases, rawAlias])),
+        aliasType: existing.aliasType ?? 'semantic_alias',
+        relationType: existing.relationType ?? candidate.suggestedRelation ?? 'alias',
         source: existing.source ?? 'user-approved',
         status: 'approved',
       };
@@ -2012,6 +2128,8 @@ export default function Home() {
         status: 'approved',
         confidence: candidate.score,
         source: 'user-approved',
+        aliasType: 'semantic_alias',
+        relationType: candidate.suggestedRelation ?? 'alias',
         conceptId: builtin?.conceptId,
         valueId: builtin?.valueId,
       });
